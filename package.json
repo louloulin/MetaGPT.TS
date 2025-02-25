@@ -12,9 +12,12 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "type-check": "tsc --noEmit",
     "docs": "typedoc",
-    "docs:watch": "typedoc --watch"
+    "docs:watch": "typedoc --watch",
+    "prepublishOnly": "bun run lint && bun run test && bun run build",
+    "publish": "npm publish"
   },
   "devDependencies": {
+    "@eslint/js": "^9.21.0",
     "@types/bun": "latest",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.13.5",
