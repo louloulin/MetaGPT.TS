@@ -1,6 +1,6 @@
 {
   "name": "@louloulinx/metagpt",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "A TypeScript implementation of MetaGPT",
   "module": "src/index.ts",
   "type": "module",

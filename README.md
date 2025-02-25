@@ -201,7 +201,7 @@ async function main() {
     console.log('✓ 教程助手初始化完成');
     
     // 设置要生成的教程主题
-    const topic = '西方经济学考研复试资料';
+    const topic = 'rust语言教程';
     console.log(`📝 生成主题: "${topic}"`);
     
     // 生成教程
