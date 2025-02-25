@@ -14,23 +14,23 @@
 ### 快速开始
 ```bash
 # 使用 bun 安装
-bun install metagpt
+bun install @louloulin/metagpt
 
 # 或使用 npm
-npm install metagpt
+npm install @louloulin/metagpt
 ```
 
 ### 基础配置
 ```typescript
 // 配置LLM提供商
-import { config } from "metagpt/config";
+import { config } from " @louloulin/metagpt/config";
 
 config.OPENAI_API_KEY = "sk-..."; // 你的API密钥
 ```
 
 ### 简单示例
 ```typescript
-import { Team, ProductManager, Architect, Engineer } from "metagpt/roles";
+import { Team, ProductManager, Architect, Engineer } from " @louloulin/metagpt/roles";
 
 // 创建团队
 const team = new Team();
@@ -158,8 +158,8 @@ config.OPENAI_API_MODEL = "gpt-4-1106-preview"; // 模型版本
 
 ### 基础使用示例(待实现)
 ```typescript
-import { Team, ProductManager, Architect, Engineer } from "metagpt/roles";
-import { Message } from "metagpt/types";
+import { Team, ProductManager, Architect, Engineer } from "@louloulin/metagpt/roles";
+import { Message } from "@louloulin/metagpt/types";
 
 async function startup(idea: string) {
   // 初始化团队
@@ -231,8 +231,8 @@ config.OPENAI_API_MODEL = "gpt-4-1106-preview"; // 模型版本
 
 ### 基础使用示例(待实现)
 ```typescript
-import { Team, ProductManager, Architect, Engineer } from "metagpt/roles";
-import { Message } from "metagpt/types";
+import { Team, ProductManager, Architect, Engineer } from "@louloulin/metagpt/roles";
+import { Message } from "@louloulin/metagpt/types";
 
 async function startup(idea: string) {
   // 初始化团队

@@ -21,17 +21,17 @@ MetaGPT.TS is a modern TypeScript framework for building multi-agent systems. It
 
 ```bash
 # Install with bun
-bun install metagpt
+bun install  @louloulin/metagpt
 
 # Or with npm
-npm install metagpt
+npm install  @louloulin/metagpt
 ```
 
 ### Basic Configuration
 
 ```typescript
 // Configure LLM provider
-import { config } from "metagpt/config";
+import { config } from " @louloulin/metagpt/config";
 
 config.OPENAI_API_KEY = "sk-..."; // Your API key
 ```
@@ -39,7 +39,7 @@ config.OPENAI_API_KEY = "sk-..."; // Your API key
 ### Simple Example
 
 ```typescript
-import { Team, ProductManager, Architect, Engineer } from "metagpt/roles";
+import { Team, ProductManager, Architect, Engineer } from " @louloulin/metagpt/roles";
 
 // Create a team
 const team = new Team();
@@ -135,7 +135,7 @@ PROJECT_ROOT=./workspace
 
 ```typescript
 // Configure LLM provider (OpenAI example)
-import { config } from "metagpt/config";
+import { config } from " @louloulin/metagpt/config";
 
 config.OPENAI_API_KEY = "sk-..."; // Your API key
 config.OPENAI_API_MODEL = "gpt-4-1106-preview"; // Model version
@@ -144,8 +144,8 @@ config.OPENAI_API_MODEL = "gpt-4-1106-preview"; // Model version
 ## Basic Usage Example (Coming Soon)
 
 ```typescript
-import { Team, ProductManager, Architect, Engineer } from "metagpt/roles";
-import { Message } from "metagpt/types";
+import { Team, ProductManager, Architect, Engineer } from " @louloulin/metagpt/roles";
+import { Message } from " @louloulin/metagpt/types";
 
 async function startup(idea: string) {
   // Initialize team
