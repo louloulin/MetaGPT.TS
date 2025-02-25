@@ -1,0 +1,25 @@
+{
+  "entryPoints": ["src/index.ts"],
+  "out": "docs/api",
+  "exclude": ["**/node_modules/**", "**/tests/**"],
+  "theme": "default",
+  "name": "MetaGPT TypeScript API",
+  "excludePrivate": true,
+  "excludeProtected": false,
+  "excludeExternals": true,
+  "includeVersion": true,
+  "categorizeByGroup": true,
+  "categoryOrder": [
+    "Core",
+    "Role System",
+    "Action System",
+    "Memory",
+    "LLM",
+    "Tools",
+    "Skills",
+    "RAG",
+    "Team",
+    "Workflow",
+    "*"
+  ]
+} 

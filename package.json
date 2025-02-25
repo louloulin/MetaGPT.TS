@@ -1,0 +1,54 @@
+{
+  "name": "metagpt.ts",
+  "version": "0.1.0",
+  "module": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "build": "bun build ./src/index.ts --outdir ./dist",
+    "test": "bun test",
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "type-check": "tsc --noEmit",
+    "docs": "typedoc",
+    "docs:watch": "typedoc --watch"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.13.5",
+    "@typescript-eslint/eslint-plugin": "8.25.0",
+    "@typescript-eslint/parser": "8.25.0",
+    "bun-types": "latest",
+    "eslint": "^9.21.0",
+    "prettier": "^3.5.2",
+    "typedoc": "0.27.9",
+    "typescript": "^5.7.3"
+  },
+  "peerDependencies": {
+    "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^1.1.10",
+    "@ai-sdk/google": "^1.1.17",
+    "@ai-sdk/mistral": "^1.1.13",
+    "@ai-sdk/openai": "^1.1.14",
+    "@jest/types": "^29.6.3",
+    "@qdrant/js-client-rest": "^1.13.0",
+    "@types/jest": "^29.5.14",
+    "@types/lodash": "^4.17.15",
+    "@types/uuid": "^10.0.0",
+    "ai": "^4.1.46",
+    "axios": "^1.7.9",
+    "lodash": "^4.17.21",
+    "openai": "^4.85.4",
+    "qwen-ai-provider": "^0.1.0",
+    "rxjs": "^7.8.2",
+    "ts-jest": "^29.2.6",
+    "uuid": "^11.1.0",
+    "winston": "^3.17.0",
+    "xstate": "^5.19.2",
+    "zod": "^3.24.2"
+  }
+}
