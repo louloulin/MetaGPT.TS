@@ -99,7 +99,7 @@ Please provide specific examples and explanations for each point.`,
 
       if (inSuggestionSection && line.trim()) {
         // 移除序号和点号
-        const suggestion = line.replace(/^\d+[\.\)]\s*/, '').trim();
+        const suggestion = line.replace(/^\d+[.)][ \t]*/, '').trim();
         if (suggestion) {
           suggestions.push(suggestion);
         }

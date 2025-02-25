@@ -18,7 +18,7 @@ export const MemoryEntrySchema = z.object({
   /** Importance score (0-1) */
   importance: z.number().min(0).max(1).default(0.5),
   /** Vector embedding for similarity search */
-  embedding?: z.array(z.number()),
+  embedding: z.array(z.number()).optional(),
 });
 
 /**

@@ -348,4 +348,13 @@ export class DataInterpreter extends BaseRole {
       
       // Execute code
       [result, success] = await this.execute_code.run(code);
-      console.log(`
+      console.log(`Execution result: ${success ? 'Success' : 'Failed'}`);
+      
+      if (!success) {
+        console.log(`[DataInterpreter] Code execution failed, retrying...`);
+      }
+    }
+    
+    return [code, result, success];
+  }
+}
