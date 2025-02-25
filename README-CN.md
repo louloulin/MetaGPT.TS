@@ -14,23 +14,23 @@
 ### 快速开始
 ```bash
 # 使用 bun 安装
-bun install @louloulin/metagpt
+bun install @louloulinx/metagpt
 
 # 或使用 npm
-npm install @louloulin/metagpt
+npm install @louloulinx/metagpt
 ```
 
 ### 基础配置
 ```typescript
 // 配置LLM提供商
-import { config } from " @louloulin/metagpt/config";
+import { config } from " @louloulinx/metagpt";
 
 config.OPENAI_API_KEY = "sk-..."; // 你的API密钥
 ```
 
 ### 简单示例
 ```typescript
-import { Team, ProductManager, Architect, Engineer } from " @louloulin/metagpt/roles";
+import { Team, ProductManager, Architect, Engineer } from "@louloulinx/metagpt";
 
 // 创建团队
 const team = new Team();
@@ -76,7 +76,6 @@ await team.runProject("实现一个简单的待办事项管理应用");
 - AI团队模拟与优化
 - 企业级应用智能化改造
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/geekan/MetaGPT)
 
 
 ### 核心功能特性
@@ -150,7 +149,7 @@ PROJECT_ROOT=./workspace
 
 ```typescript
 // 配置LLM提供商（以OpenAI为例）
-import { config } from "metagpt/config";
+import { config } from "@louloulinx/metagpt";
 
 config.OPENAI_API_KEY = "sk-..."; // 你的API密钥
 config.OPENAI_API_MODEL = "gpt-4-1106-preview"; // 模型版本
@@ -158,8 +157,8 @@ config.OPENAI_API_MODEL = "gpt-4-1106-preview"; // 模型版本
 
 ### 基础使用示例(待实现)
 ```typescript
-import { Team, ProductManager, Architect, Engineer } from "@louloulin/metagpt/roles";
-import { Message } from "@louloulin/metagpt/types";
+import { Team, ProductManager, Architect, Engineer } from "@louloulinx/metagpt";
+import { Message } from "@louloulinx/metagpt";
 
 async function startup(idea: string) {
   // 初始化团队
@@ -223,7 +222,7 @@ PROJECT_ROOT=./workspace
 
 ```typescript
 // 配置LLM提供商（以OpenAI为例）
-import { config } from "metagpt/config";
+import { config } from "@louloulinx/metagpt";
 
 config.OPENAI_API_KEY = "sk-..."; // 你的API密钥
 config.OPENAI_API_MODEL = "gpt-4-1106-preview"; // 模型版本
@@ -231,8 +230,9 @@ config.OPENAI_API_MODEL = "gpt-4-1106-preview"; // 模型版本
 
 ### 基础使用示例(待实现)
 ```typescript
-import { Team, ProductManager, Architect, Engineer } from "@louloulin/metagpt/roles";
-import { Message } from "@louloulin/metagpt/types";
+import { Team, ProductManager, Architect, Engineer } from "@louloulinx/metagpt";
+import { Message } from "@louloulinx/metagpt";
+
 
 async function startup(idea: string) {
   // 初始化团队

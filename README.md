@@ -31,7 +31,7 @@ npm install @louloulinx/metagpt
 
 ```typescript
 // Configure LLM provider
-import { config } from "@louloulinx/metagpt/config";
+import { config } from "@louloulinx/metagpt";
 
 config.OPENAI_API_KEY = "sk-..."; // Your API key
 ```
@@ -39,7 +39,7 @@ config.OPENAI_API_KEY = "sk-..."; // Your API key
 ### Simple Example
 
 ```typescript
-import { Team, ProductManager, Architect, Engineer } from "@louloulinx/metagpt/roles";
+import { Team, ProductManager, Architect, Engineer } from "@louloulinx/metagpt";
 
 // Create a team
 const team = new Team();
@@ -135,7 +135,7 @@ PROJECT_ROOT=./workspace
 
 ```typescript
 // Configure LLM provider (OpenAI example)
-import { config } from "@louloulinx/metagpt/config";
+import { config } from "@louloulinx/metagpt";
 
 config.OPENAI_API_KEY = "sk-..."; // Your API key
 config.OPENAI_API_MODEL = "gpt-4-1106-preview"; // Model version
@@ -145,7 +145,7 @@ config.OPENAI_API_MODEL = "gpt-4-1106-preview"; // Model version
 
 ```typescript
 import { Team, ProductManager, Architect, Engineer } from "@louloulinx/metagpt/roles";
-import { Message } from "@louloulinx/metagpt/types";
+import { Message } from "@louloulinx/metagpt";
 
 async function startup(idea: string) {
   // Initialize team
