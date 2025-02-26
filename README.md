@@ -101,6 +101,174 @@ metagpt/
 └── package.json      # Project dependencies and scripts
 ```
 
+## Detailed Configuration Guide
+
+MetaGPT.TS provides a powerful and flexible configuration system that supports multiple sources and formats.
+
+### Configuration Sources
+
+MetaGPT.TS loads configuration from the following sources (in order of precedence):
+
+1. **Command Line Arguments** - Highest priority, overrides other sources
+2. **Environment Variables** - Second highest priority
+3. **Configuration Files** - Third highest priority 
+4. **Default Values** - Used when no other sources provide a value
+
+### Environment Variable Configuration
+
+You can configure MetaGPT.TS using environment variables. The system supports both legacy variable names for compatibility and a new standardized naming convention with the `METAGPT_` prefix:
+
+```bash
+# LLM provider configuration
+export METAGPT_LLM_API_TYPE=openai
+export METAGPT_LLM_API_KEY=sk-your-openai-api-key
+export METAGPT_LLM_MODEL=gpt-4-turbo
+export METAGPT_LLM_MAX_TOKENS=4000
+export METAGPT_LLM_TEMPERATURE=0.7
+
+# Or using legacy variable names
+export OPENAI_API_KEY=sk-your-openai-api-key
+export LLM_MODEL=gpt-4-turbo
+
+# Vector storage configuration
+export METAGPT_EMBEDDING_API_TYPE=openai
+export METAGPT_EMBEDDING_MODEL=text-embedding-ada-002
+
+# Workspace configuration
+export METAGPT_WORKSPACE_ROOT=./my-workspace
+export METAGPT_WORKSPACE_AUTO_CLEAN=true
+
+# Feature flags
+export METAGPT_ENABLE_LONGTERM_MEMORY=true
+```
+
+### Configuration Files
+
+MetaGPT.TS supports multiple configuration file formats:
+
+#### JSON Configuration
+
+Create a `.metagpt.json` file in your project root:
+
+```json
+{
+  "llm": {
+    "apiType": "openai",
+    "apiKey": "sk-your-openai-api-key",
+    "model": "gpt-4-turbo",
+    "maxTokens": 4000,
+    "temperature": 0.7
+  },
+  "embedding": {
+    "apiType": "openai",
+    "model": "text-embedding-ada-002"
+  },
+  "workspace": {
+    "root": "./my-workspace",
+    "autoClean": false
+  },
+  "enableLongtermMemory": true,
+  "language": "English"
+}
+```
+
+#### YAML Configuration
+
+Create a `.metagpt.yaml` file in your project root:
+
+```yaml
+llm:
+  apiType: openai
+  apiKey: sk-your-openai-api-key
+  model: gpt-4-turbo
+  maxTokens: 4000
+  temperature: 0.7
+
+embedding:
+  apiType: openai
+  model: text-embedding-ada-002
+
+workspace:
+  root: ./my-workspace
+  autoClean: false
+
+enableLongtermMemory: true
+language: English
+```
+
+#### JavaScript Configuration
+
+Create a `metagpt.config.js` file in your project root:
+
+```javascript
+module.exports = {
+  llm: {
+    apiType: 'openai',
+    apiKey: process.env.OPENAI_API_KEY || 'sk-your-openai-api-key',
+    model: 'gpt-4-turbo',
+    maxTokens: 4000,
+    temperature: 0.7
+  },
+  embedding: {
+    apiType: 'openai',
+    model: 'text-embedding-ada-002'
+  },
+  workspace: {
+    root: './my-workspace',
+    autoClean: false
+  },
+  enableLongtermMemory: true,
+  language: 'English'
+};
+```
+
+### Configuration File Detection
+
+MetaGPT.TS automatically detects configuration files in the following order:
+
+1. Current working directory
+2. User's home directory
+
+Supported file names:
+- `.metagpt.json`
+- `.metagpt.yaml`, `.metagpt.yml`
+- `.metagpt.js`, `.metagpt.cjs`
+- `metagpt.config.json`
+- `metagpt.config.yaml`, `metagpt.config.yml`
+- `metagpt.config.js`, `metagpt.config.cjs`
+
+### Programmatic Configuration
+
+You can also configure MetaGPT.TS programmatically:
+
+```typescript
+import { ConfigLoader } from '@louloulinx/metagpt';
+
+// Load configuration from all sources
+const config = await ConfigLoader.load({
+  configPath: './my-config.json', // Optional: specify config file
+  loadEnv: true, // Load from environment variables
+  defaultConfig: {
+    // Default configuration values
+    llm: {
+      apiType: 'openai',
+      model: 'gpt-3.5-turbo',
+    }
+  },
+  cliConfig: {
+    // Override with command line arguments
+    projectName: 'my-project'
+  }
+});
+
+// Use the configuration
+console.log(`Using model: ${config.llm.model}`);
+```
+
+### Configuration Schema
+
+The configuration schema is defined using Zod for runtime type validation. See the [API reference](#) for details on all available configuration options.
+
 ## Environment Configuration
 
 MetaGPT.TS supports environment variable configuration through `.env` files for easy management of API keys and other configuration items.

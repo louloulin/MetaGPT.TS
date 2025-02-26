@@ -28,6 +28,35 @@ export const CLIParamsSchema = z.object({
 export type CLIParams = z.infer<typeof CLIParamsSchema>;
 
 /**
+ * LLM configuration schema
+ * Defines settings for language model operations
+ */
+export const LLMConfigSchema = z.object({
+  /** API type (e.g., 'openai', 'azure') */
+  apiType: z.string(),
+  /** API key for authentication */
+  apiKey: z.string(),
+  /** Model name */
+  model: z.string(),
+  /** Maximum tokens to generate */
+  maxTokens: z.number().default(4096),
+  /** Temperature for sampling */
+  temperature: z.number().min(0).max(2).default(0.7),
+  /** Top P for nucleus sampling */
+  topP: z.number().min(0).max(1).default(1),
+  /** Number of completions to generate */
+  n: z.number().int().positive().default(1),
+  /** Presence penalty */
+  presencePenalty: z.number().default(0),
+  /** Frequency penalty */
+  frequencyPenalty: z.number().default(0),
+  /** Maximum retries on failure */
+  maxRetries: z.number().int().nonnegative().default(3),
+  /** Request timeout in milliseconds */
+  timeout: z.number().int().positive().default(60000),
+});
+
+/**
  * Embedding configuration schema
  * Defines settings for text embedding operations
  */
@@ -41,7 +70,7 @@ export const EmbeddingConfigSchema = z.object({
   /** Proxy URL if needed */
   proxy: z.string().optional(),
   /** Batch size for embedding operations */
-  batchSize: z.number().default(512),
+  batchSize: z.number().int().positive().default(512),
 });
 
 export type EmbeddingConfig = z.infer<typeof EmbeddingConfigSchema>;
@@ -73,7 +102,7 @@ export const SearchConfigSchema = z.object({
   /** Proxy URL if needed */
   proxy: z.string().optional(),
   /** Maximum results per search */
-  maxResults: z.number().default(10),
+  maxResults: z.number().int().positive().default(10),
 });
 
 export type SearchConfig = z.infer<typeof SearchConfigSchema>;
@@ -84,7 +113,7 @@ export type SearchConfig = z.infer<typeof SearchConfigSchema>;
  */
 export const ConfigSchema = CLIParamsSchema.extend({
   /** LLM provider configuration */
-  llm: z.any(), // LLMConfig type
+  llm: LLMConfigSchema.partial().default({}),
   /** Embedding configuration */
   embedding: EmbeddingConfigSchema.default({}),
   /** Global proxy URL */
@@ -96,12 +125,12 @@ export const ConfigSchema = CLIParamsSchema.extend({
   /** Whether to enable long-term memory */
   enableLongtermMemory: z.boolean().default(false),
   /** Number of code review iterations */
-  codeReviewKTimes: z.number().default(2),
+  codeReviewKTimes: z.number().int().positive().default(2),
   /** Interface language */
   language: z.string().default('English'),
   /** Additional configuration options */
-  extra: z.record(z.any()).default({}),
-});
+  extra: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).default({}),
+}).strict();
 
 export type Config = z.infer<typeof ConfigSchema>;
 
