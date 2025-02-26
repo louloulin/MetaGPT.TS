@@ -67,6 +67,10 @@ async function main() {
     
     logger.info('Sending request to ProductManager...');
     
+    // 使用公共方法设置需求参数
+    writePRDAction.setRequirements(userMessage.content);
+    logger.info('Requirements set for WritePRD action');
+    
     // Run the product manager role with the user message
     const response = await productManager.run(userMessage);
     

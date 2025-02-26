@@ -16,6 +16,15 @@ export class WritePRD extends BaseAction {
   }
 
   /**
+   * Set requirements for the PRD
+   * @param requirements - User requirements text
+   */
+  public setRequirements(requirements: string): void {
+    this.setArg('requirements', requirements);
+    logger.debug(`[${this.name}] Requirements set: ${requirements.substring(0, 50)}...`);
+  }
+
+  /**
    * Run the action to generate a PRD
    * @returns Action output containing the generated PRD
    */

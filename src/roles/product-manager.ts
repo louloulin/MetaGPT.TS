@@ -97,6 +97,18 @@ export class ProductManager extends BaseRole {
           message.content.toLowerCase().includes('feature') ||
           message.content.toLowerCase().includes('product')) {
         
+        // 找到 WritePRD 行动并设置参数
+        const prdAction = this.actions.find(action => 
+          action.name.toLowerCase().includes('prd') || 
+          action.name.toLowerCase().includes('requirement') ||
+          action.name.toLowerCase().includes('spec')
+        );
+        
+        if (prdAction && 'setArg' in prdAction && typeof prdAction.setArg === 'function') {
+          logger.info(`[${this.name}] Setting requirements parameter for PRD action`);
+          prdAction.setArg('requirements', message.content);
+        }
+        
         const productSpec = await this.createProductSpec(message);
         
         // Add the product spec to memory
