@@ -3,13 +3,17 @@ import type { Message } from './message';
 import type { Action } from './action';
 import { createMachine } from 'xstate';
 
+export const RoleReactModeEnum = z.enum(['react', 'by_order', 'plan_and_act']);
+export type RoleReactMode = z.infer<typeof RoleReactModeEnum>;
+
 export const RoleContextSchema = z.object({
   memory: z.any(), // TODO: Define Memory type
   workingMemory: z.any(), // TODO: Define Memory type
   state: z.number(),
   todo: z.any().nullable(), // TODO: Define Action type
   watch: z.set(z.string()),
-  reactMode: z.enum(['react', 'by_order', 'plan_and_act']),
+  reactMode: RoleReactModeEnum,
+  maxReactLoop: z.number().default(1),
 });
 
 export type RoleContext = z.infer<typeof RoleContextSchema>;
@@ -23,13 +27,28 @@ export const RoleSchema = z.object({
 });
 
 export type Role = z.infer<typeof RoleSchema> & {
-  observe(): Promise<number>;
+  observe(): Promise<boolean>;
   think(): Promise<boolean>;
   act(): Promise<Message>;
-  react(): Promise<Message>;
-  state: number;
+  react(message?: Message): Promise<Message>;
+  run(message?: Message): Promise<Message>;
   context: RoleContext;
 };
+
+// Role state type
+export type RoleState = 'idle' | 'observing' | 'thinking' | 'acting' | 'reacting';
+
+// Role event type
+export type RoleEvent = 
+  | { type: 'OBSERVE' }
+  | { type: 'THINK' }
+  | { type: 'ACT' }
+  | { type: 'REACT', message?: Message }
+  | { type: 'COMPLETE' }
+  | { type: 'ERROR', error: Error };
+
+// Role state machine type
+export type RoleMachine = ReturnType<typeof createRoleStateMachine>;
 
 // 角色状态机定义
 export const roleStateMachine = createMachine({
@@ -64,4 +83,88 @@ export const roleStateMachine = createMachine({
       }
     }
   }
-}); 
+});
+
+/**
+ * Create default role context
+ */
+export function createDefaultRoleContext(): RoleContext {
+  return {
+    memory: {
+      add: (message: Message) => {},
+      get: () => [],
+      getMessages: () => [],
+      clear: () => {}
+    },
+    workingMemory: {
+      add: (message: Message) => {},
+      get: () => [],
+      getMessages: () => [],
+      clear: () => {}
+    },
+    state: -1,
+    todo: null,
+    watch: new Set<string>(),
+    reactMode: 'react',
+    maxReactLoop: 1
+  };
+}
+
+/**
+ * Create role state machine
+ */
+export function createRoleStateMachine(context: RoleContext) {
+  return createMachine({
+    id: 'role',
+    initial: 'idle',
+    context,
+    states: {
+      idle: {
+        on: { OBSERVE: 'observing' }
+      },
+      observing: {
+        invoke: {
+          src: 'observeService',
+          onDone: [
+            {
+              target: 'thinking',
+              guard: (_, event: any) => Boolean(event?.output)
+            },
+            { target: 'idle' }
+          ],
+          onError: 'idle'
+        }
+      },
+      thinking: {
+        invoke: {
+          src: 'thinkService',
+          onDone: [
+            {
+              target: 'acting',
+              guard: (_, event: any) => Boolean(event?.output)
+            },
+            { target: 'idle' }
+          ],
+          onError: 'idle'
+        }
+      },
+      acting: {
+        invoke: {
+          src: 'actService',
+          onDone: 'reacting',
+          onError: 'idle'
+        }
+      },
+      reacting: {
+        invoke: {
+          src: 'reactService',
+          onDone: 'observing',
+          onError: 'idle'
+        },
+        on: {
+          COMPLETE: 'idle'
+        }
+      }
+    }
+  });
+} 

@@ -69,6 +69,7 @@ export type ModelProviderConfig = z.infer<typeof ModelProviderConfigSchema>;
  */
 export class VercelLLMProvider implements LLMProvider {
   private config: ModelProviderConfig;
+  private systemPrompt: string = '';
   private providerFunctions: Record<ModelProviderType, any> = {
     openai: openai,
     qwen: null,
@@ -310,5 +311,46 @@ export class VercelLLMProvider implements LLMProvider {
       return error;
     }
     return new Error(`Unknown ${this.config.providerType} provider error`);
+  }
+
+  /**
+   * Chat with the LLM
+   * @param message - Message to send
+   * @returns LLM response
+   */
+  async chat(message: string): Promise<string> {
+    return this.generate(message);
+  }
+
+  /**
+   * Set the system prompt
+   * @param prompt - System prompt to set
+   */
+  setSystemPrompt(prompt: string): void {
+    this.systemPrompt = prompt;
+  }
+
+  /**
+   * Get the current system prompt
+   * @returns Current system prompt
+   */
+  getSystemPrompt(): string {
+    return this.systemPrompt;
+  }
+
+  /**
+   * Get the name of the LLM provider
+   * @returns Provider name
+   */
+  getName(): string {
+    return this.config.providerType;
+  }
+
+  /**
+   * Get the model being used
+   * @returns Model name
+   */
+  getModel(): string {
+    return this.config.model || this.getDefaultModel();
   }
 } 

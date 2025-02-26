@@ -6,6 +6,7 @@ import { WriteDirectory, WriteContent } from '../actions/write-tutorial';
 import type { Directory } from '../actions/write-tutorial';
 import type { Message, MESSAGE_ROUTE } from '../types/message';
 import type { LLMProvider } from '../types/llm';
+import { logger } from '../utils/logger';
 
 /**
  * 教程助手配置接口
@@ -37,7 +38,7 @@ export class TutorialAssistant extends BaseRole {
       []
     );
     
-    console.log('[TutorialAssistant] Initializing with config:', {
+    logger.info('[TutorialAssistant] Initializing with config:', {
       language: config.language || 'Chinese',
       outputDir: config.outputDir || path.join(process.cwd(), 'tutorials')
     });
@@ -54,7 +55,7 @@ export class TutorialAssistant extends BaseRole {
    * 初始化动作列表
    */
   private initializeActions(): void {
-    console.log('[TutorialAssistant] Initializing actions');
+    logger.info('[TutorialAssistant] Initializing actions');
     
     // 初始时只设置目录生成动作
     const writeDirectory = new WriteDirectory({
@@ -62,7 +63,7 @@ export class TutorialAssistant extends BaseRole {
       language: this.language,
     });
     
-    console.log('[TutorialAssistant] Created WriteDirectory action');
+    logger.info('[TutorialAssistant] Created WriteDirectory action');
     this.actions = [writeDirectory];
   }
 
@@ -71,7 +72,7 @@ export class TutorialAssistant extends BaseRole {
    * @param directory 目录结构
    */
   private async handleDirectory(directory: Directory): Promise<void> {
-    console.log('[TutorialAssistant] Handling directory structure:', JSON.stringify(directory, null, 2));
+    logger.info('[TutorialAssistant] Handling directory structure:', JSON.stringify(directory, null, 2));
     
     this.mainTitle = directory.title;
     this.totalContent += `# ${this.mainTitle}\n\n`;
@@ -79,11 +80,11 @@ export class TutorialAssistant extends BaseRole {
     // 将所有章节内容生成动作添加到动作列表
     const actions = [...this.actions];
     
-    console.log(`[TutorialAssistant] Processing ${directory.directory.length} sections`);
+    logger.info(`[TutorialAssistant] Processing ${directory.directory.length} sections`);
     
     for (const section of directory.directory) {
       const sectionKey = Object.keys(section)[0];
-      console.log(`[TutorialAssistant] Creating WriteContent action for section: ${sectionKey}`);
+      logger.info(`[TutorialAssistant] Creating WriteContent action for section: ${sectionKey}`);
       
       const writeContent = new WriteContent({
         llm: this.llm,
@@ -94,7 +95,7 @@ export class TutorialAssistant extends BaseRole {
       actions.push(writeContent);
     }
     
-    console.log(`[TutorialAssistant] Updated actions list, now contains ${actions.length} actions`);
+    logger.info(`[TutorialAssistant] Updated actions list, now contains ${actions.length} actions`);
     this.actions = actions;
   }
 
@@ -104,65 +105,65 @@ export class TutorialAssistant extends BaseRole {
    * @returns 处理结果
    */
   async react(message: Message): Promise<Message> {
-    console.log('[TutorialAssistant] Starting react method with message:', message.content);
+    logger.info('[TutorialAssistant] Starting react method with message:', message.content);
     
     try {
       // 保存主题
       this.topic = message.content;
-      console.log(`[TutorialAssistant] Set topic: "${this.topic}"`);
+      logger.info(`[TutorialAssistant] Set topic: "${this.topic}"`);
       
       // 执行所有动作
-      console.log(`[TutorialAssistant] Starting execution of ${this.actions.length} actions`);
+      logger.info(`[TutorialAssistant] Starting execution of ${this.actions.length} actions`);
       
       for (let i = 0; i < this.actions.length; i++) {
         const action = this.actions[i];
-        console.log(`[TutorialAssistant] Running action ${i+1}/${this.actions.length}: ${action.constructor.name}`);
+        logger.info(`[TutorialAssistant] Running action ${i+1}/${this.actions.length}: ${action.constructor.name}`);
         
         // 为动作设置主题参数
         if ('setArg' in action && typeof action.setArg === 'function') {
-          console.log(`[TutorialAssistant] Setting topic argument for action: "${this.topic}"`);
+          logger.info(`[TutorialAssistant] Setting topic argument for action: "${this.topic}"`);
           action.setArg('topic', this.topic);
         }
         
         // 执行动作
-        console.log(`[TutorialAssistant] Executing action ${action.constructor.name}`);
+        logger.info(`[TutorialAssistant] Executing action ${action.constructor.name}`);
         const result = await action.run();
-        console.log(`[TutorialAssistant] Action ${action.constructor.name} completed with status: ${result.status}`);
+        logger.info(`[TutorialAssistant] Action ${action.constructor.name} completed with status: ${result.status}`);
         
         if (result.status === 'failed') {
-          console.error(`[TutorialAssistant] Action failed: ${result.content}`);
+          logger.error(`[TutorialAssistant] Action failed: ${result.content}`);
           return this.createMessage(`Failed to generate tutorial: ${result.content}`);
         }
         
         // 处理目录生成结果
         if (action instanceof WriteDirectory) {
-          console.log('[TutorialAssistant] Processing WriteDirectory result');
+          logger.info('[TutorialAssistant] Processing WriteDirectory result');
           if (result.instructContent) {
-            console.log('[TutorialAssistant] Directory structure generated, handling it');
+            logger.info('[TutorialAssistant] Directory structure generated, handling it');
             await this.handleDirectory(result.instructContent as Directory);
           } else {
-            console.warn('[TutorialAssistant] WriteDirectory action did not produce instructContent');
+            logger.warn('[TutorialAssistant] WriteDirectory action did not produce instructContent');
           }
         } 
         // 处理内容生成结果
         else if (action instanceof WriteContent) {
-          console.log('[TutorialAssistant] Processing WriteContent result');
+          logger.info('[TutorialAssistant] Processing WriteContent result');
           if (this.totalContent.length > 0) {
             this.totalContent += '\n\n\n';
           }
-          console.log(`[TutorialAssistant] Adding content (${result.content.length} characters)`);
+          logger.info(`[TutorialAssistant] Adding content (${result.content.length} characters)`);
           this.totalContent += result.content;
         }
       }
       
       // 保存生成的内容到文件
-      console.log('[TutorialAssistant] All actions completed, saving content to file');
+      logger.info('[TutorialAssistant] All actions completed, saving content to file');
       const filePath = await this.saveToFile();
-      console.log(`[TutorialAssistant] Content saved to ${filePath}`);
+      logger.info(`[TutorialAssistant] Content saved to ${filePath}`);
       
       return this.createMessage(`Tutorial generated successfully and saved to ${filePath}`);
     } catch (error) {
-      console.error('[TutorialAssistant] Error in react method:', error);
+      logger.error('[TutorialAssistant] Error in react method:', error);
       return this.createMessage(`Error generating tutorial: ${error}`);
     }
   }
@@ -172,14 +173,15 @@ export class TutorialAssistant extends BaseRole {
    * @param content 消息内容
    * @returns 消息对象
    */
-  private createMessage(content: string): Message {
-    console.log(`[TutorialAssistant] Creating message: ${content}`);
+  protected createMessage(content: string): Message {
+    logger.info(`[TutorialAssistant] Creating message: ${content}`);
     return {
       id: uuidv4(),
       content,
       role: this.profile,
       causedBy: 'TutorialAssistant',
       sentFrom: this.name,
+      timestamp: new Date().toISOString(),
       sendTo: new Set(['*']),
       instructContent: null,
     };
@@ -191,10 +193,10 @@ export class TutorialAssistant extends BaseRole {
    */
   private async saveToFile(): Promise<string> {
     try {
-      console.log(`[TutorialAssistant] Saving content (${this.totalContent.length} characters) to file`);
+      logger.info(`[TutorialAssistant] Saving content (${this.totalContent.length} characters) to file`);
       
       // 确保输出目录存在
-      console.log(`[TutorialAssistant] Creating output directory: ${this.outputDir}`);
+      logger.info(`[TutorialAssistant] Creating output directory: ${this.outputDir}`);
       await fs.mkdir(this.outputDir, { recursive: true });
       
       // 生成带时间戳的文件名
@@ -202,15 +204,15 @@ export class TutorialAssistant extends BaseRole {
       const fileName = `${this.mainTitle || 'Tutorial'}_${timestamp}.md`;
       const filePath = path.join(this.outputDir, fileName);
       
-      console.log(`[TutorialAssistant] Writing to file: ${filePath}`);
+      logger.info(`[TutorialAssistant] Writing to file: ${filePath}`);
       
       // 写入文件
       await fs.writeFile(filePath, this.totalContent);
-      console.log(`[TutorialAssistant] File written successfully: ${filePath}`);
+      logger.info(`[TutorialAssistant] File written successfully: ${filePath}`);
       
       return filePath;
     } catch (error) {
-      console.error('[TutorialAssistant] Error saving tutorial file:', error);
+      logger.error('[TutorialAssistant] Error saving tutorial file:', error);
       throw error;
     }
   }

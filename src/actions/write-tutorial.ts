@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { ActionOutput } from '../types/action';
 import type { LLMProvider } from '../types/llm';
 import { BaseAction } from './base-action';
+import { logger } from '../utils/logger';
 
 /**
  * 动作配置接口
@@ -50,7 +51,7 @@ export class WriteDirectory extends BaseAction {
       name: 'WriteDirectory',
     });
     this.language = config.language || 'Chinese';
-    console.log(`[WriteDirectory] Initialized with language: ${this.language}`);
+    logger.info(`[WriteDirectory] Initialized with language: ${this.language}`);
   }
 
   /**
@@ -58,33 +59,33 @@ export class WriteDirectory extends BaseAction {
    */
   async run(): Promise<ActionOutput> {
     try {
-      console.log('[WriteDirectory] Starting run() method');
+      logger.info('[WriteDirectory] Starting run() method');
       const topic = this.getArg<string>('topic') || '';
-      console.log(`[WriteDirectory] Topic: "${topic}"`);
+      logger.info(`[WriteDirectory] Topic: "${topic}"`);
       
       if (!topic) {
-        console.warn('[WriteDirectory] Topic is required but not provided');
+        logger.warn('[WriteDirectory] Topic is required but not provided');
         return this.createOutput('Topic is required', 'failed');
       }
 
       const prompt = this.generateDirectoryPrompt(topic);
-      console.log(`[WriteDirectory] Generated prompt (${prompt.length} characters)`);
-      console.log('[WriteDirectory] Calling LLM to generate directory structure');
+      logger.info(`[WriteDirectory] Generated prompt (${prompt.length} characters)`);
+      logger.info('[WriteDirectory] Calling LLM to generate directory structure');
       
       const result = await this.llm.generate(prompt);
-      console.log(`[WriteDirectory] Received response from LLM (${result.length} characters)`);
+      logger.info(`[WriteDirectory] Received response from LLM (${result.length} characters)`);
       
       // 解析JSON结果
       try {
-        console.log('[WriteDirectory] Parsing LLM response as JSON');
+        logger.info('[WriteDirectory] Parsing LLM response as JSON');
         const jsonStr = result.replace(/```json|```/g, '').trim();
-        console.log(`[WriteDirectory] Cleaned JSON string: ${jsonStr.substring(0, 100)}...`);
+        logger.debug(`[WriteDirectory] Cleaned JSON string: ${jsonStr.substring(0, 100)}...`);
         
         const parsed = JSON.parse(jsonStr);
-        console.log('[WriteDirectory] JSON parsed successfully');
+        logger.info('[WriteDirectory] JSON parsed successfully');
         
         const directory = DirectorySchema.parse(parsed);
-        console.log(`[WriteDirectory] Directory schema validated: ${directory.title} with ${directory.directory.length} sections`);
+        logger.info(`[WriteDirectory] Directory schema validated: ${directory.title} with ${directory.directory.length} sections`);
         
         return this.createOutput(
           JSON.stringify(directory),
@@ -92,8 +93,8 @@ export class WriteDirectory extends BaseAction {
           directory
         );
       } catch (e) {
-        console.error('[WriteDirectory] Failed to parse directory structure JSON:', e);
-        console.log('[WriteDirectory] Original LLM response:', result);
+        logger.error('[WriteDirectory] Failed to parse directory structure JSON:', e);
+        logger.debug('[WriteDirectory] Original LLM response:', result);
         
         // 返回默认结构
         const defaultDirectory: Directory = {
@@ -105,7 +106,7 @@ export class WriteDirectory extends BaseAction {
           ]
         };
         
-        console.log('[WriteDirectory] Using default directory structure instead');
+        logger.info('[WriteDirectory] Using default directory structure instead');
         return this.createOutput(
           JSON.stringify(defaultDirectory),
           'completed',
@@ -113,7 +114,7 @@ export class WriteDirectory extends BaseAction {
         );
       }
     } catch (error) {
-      console.error('[WriteDirectory] Error generating directory:', error);
+      logger.error('[WriteDirectory] Error generating directory:', error);
       if (error instanceof Error) {
         await this.handleException(error);
       }
@@ -169,7 +170,7 @@ export class WriteContent extends BaseAction {
     
     const sectionTitle = Object.keys(this.directory)[0];
     const subsections = this.directory[sectionTitle];
-    console.log(`[WriteContent] Initialized for section "${sectionTitle}" with ${subsections.length} subsections`);
+    logger.info(`[WriteContent] Initialized for section "${sectionTitle}" with ${subsections.length} subsections`);
   }
 
   /**
@@ -177,29 +178,29 @@ export class WriteContent extends BaseAction {
    */
   async run(): Promise<ActionOutput> {
     try {
-      console.log('[WriteContent] Starting run() method');
+      logger.info('[WriteContent] Starting run() method');
       
       const topic = this.getArg<string>('topic') || '';
-      console.log(`[WriteContent] Topic: "${topic}"`);
+      logger.info(`[WriteContent] Topic: "${topic}"`);
       
       if (!topic) {
-        console.warn('[WriteContent] Topic is required but not provided');
+        logger.warn('[WriteContent] Topic is required but not provided');
         return this.createOutput('Topic is required', 'failed');
       }
 
       const sectionTitle = Object.keys(this.directory)[0];
-      console.log(`[WriteContent] Generating content for section: "${sectionTitle}"`);
+      logger.info(`[WriteContent] Generating content for section: "${sectionTitle}"`);
       
       const prompt = this.generateContentPrompt(topic);
-      console.log(`[WriteContent] Generated prompt (${prompt.length} characters)`);
-      console.log('[WriteContent] Calling LLM to generate content');
+      logger.info(`[WriteContent] Generated prompt (${prompt.length} characters)`);
+      logger.info('[WriteContent] Calling LLM to generate content');
       
       const result = await this.llm.generate(prompt);
-      console.log(`[WriteContent] Received response from LLM (${result.length} characters)`);
+      logger.info(`[WriteContent] Received response from LLM (${result.length} characters)`);
       
       return this.createOutput(result.trim(), 'completed');
     } catch (error) {
-      console.error('[WriteContent] Error generating content:', error);
+      logger.error('[WriteContent] Error generating content:', error);
       if (error instanceof Error) {
         await this.handleException(error);
       }

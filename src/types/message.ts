@@ -29,6 +29,7 @@ export const MessageSchema = z.object({
   role: z.string().default('user'),
   causedBy: z.string().default(MESSAGE_ROUTE.CAUSE_BY),
   sentFrom: z.string().default(MESSAGE_ROUTE.FROM),
+  timestamp: z.string().default(() => new Date().toISOString()),
   sendTo: z.union([
     z.string(),
     z.array(z.string()),
@@ -152,6 +153,7 @@ export class UserMessage implements Message {
   public causedBy: string = MESSAGE_ROUTE.CAUSE_BY;
   public sentFrom: string = MESSAGE_ROUTE.FROM;
   public sendTo: Set<string> = new Set([MESSAGE_ROUTE.TO_ALL]);
+  public timestamp: string = new Date().toISOString();
 
   constructor(content: string) {
     this.content = content;
@@ -169,6 +171,7 @@ export class SystemMessage implements Message {
   public causedBy: string = MESSAGE_ROUTE.CAUSE_BY;
   public sentFrom: string = MESSAGE_ROUTE.FROM;
   public sendTo: Set<string> = new Set([MESSAGE_ROUTE.TO_ALL]);
+  public timestamp: string = new Date().toISOString();
 
   constructor(content: string) {
     this.content = content;
@@ -186,6 +189,7 @@ export class AIMessage implements Message {
   public causedBy: string = MESSAGE_ROUTE.CAUSE_BY;
   public sentFrom: string = MESSAGE_ROUTE.FROM;
   public sendTo: Set<string> = new Set([MESSAGE_ROUTE.TO_ALL]);
+  public timestamp: string = new Date().toISOString();
 
   constructor(content: string) {
     this.content = content;
