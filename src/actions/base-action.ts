@@ -122,20 +122,21 @@ export abstract class BaseAction implements Action {
 
   /**
    * Ask the LLM a question
-   * @param prompt Prompt to send
-   * @param systemMsgs Optional system messages
-   * @returns LLM response
+   * @param prompt - The prompt to send to the LLM
+   * @returns The LLM's response
    */
-  protected async ask(prompt: string, systemMsgs?: string[]): Promise<string> {
+  protected async ask(prompt: string): Promise<string> {
     try {
       if (!this.llm) {
-        throw new Error(`No LLM provider available for action ${this.name}`);
+        throw new Error(`[${this.name}] No LLM provider set for action`);
       }
-
+      
       // Apply system messages if provided
-      let currentSystemPrompt = this.prefix;
-      if (systemMsgs && systemMsgs.length > 0) {
-        currentSystemPrompt = [this.prefix, ...systemMsgs].join('\n');
+      const systemMessages = this.getArg<string[]>('system_messages') || [];
+      let currentSystemPrompt = '';
+      
+      if (systemMessages.length > 0) {
+        currentSystemPrompt = systemMessages.join('\n');
       }
 
       // Set system prompt if different from current
@@ -155,6 +156,60 @@ export abstract class BaseAction implements Action {
       return response;
     } catch (error) {
       logger.error(`[${this.name}] Error asking LLM:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Ask the LLM a question with streaming response
+   * @param prompt - The prompt to send to the LLM
+   * @returns The LLM's response as an async generator
+   */
+  protected async *askStream(prompt: string): AsyncGenerator<string> {
+    try {
+      if (!this.llm) {
+        throw new Error(`[${this.name}] No LLM provider set for action`);
+      }
+      
+      // Apply system messages if provided
+      const systemMessages = this.getArg<string[]>('system_messages') || [];
+      let currentSystemPrompt = '';
+      
+      if (systemMessages.length > 0) {
+        currentSystemPrompt = systemMessages.join('\n');
+      }
+
+      // Set system prompt if different from current
+      if (currentSystemPrompt && 
+          this.llm &&
+          typeof this.llm.setSystemPrompt === 'function' && 
+          typeof this.llm.getSystemPrompt === 'function' &&
+          this.llm.getSystemPrompt() !== currentSystemPrompt) {
+        this.llm.setSystemPrompt(currentSystemPrompt);
+      }
+
+      // Send prompt to LLM with streaming
+      logger.debug(`[${this.name}] Asking LLM (streaming): ${prompt.substring(0, 100)}...`);
+      
+      // Check if chatStream method exists on the LLM provider
+      if (this.llm && 'chatStream' in this.llm && typeof this.llm.chatStream === 'function') {
+        for await (const chunk of this.llm.chatStream(prompt)) {
+          yield chunk;
+        }
+      } else if (this.llm && 'generateStream' in this.llm && typeof this.llm.generateStream === 'function') {
+        // Fall back to generateStream if chatStream is not available
+        for await (const chunk of this.llm.generateStream(prompt)) {
+          yield chunk;
+        }
+      } else {
+        // Fall back to non-streaming if streaming is not available
+        const response = await this.llm.chat(prompt);
+        yield response;
+      }
+      
+      logger.debug(`[${this.name}] LLM streaming response completed`);
+    } catch (error) {
+      logger.error(`[${this.name}] Error asking LLM with streaming:`, error);
       throw error;
     }
   }

@@ -66,6 +66,54 @@ export class WritePRD extends BaseAction {
   }
 
   /**
+   * Run the action to generate a PRD with streaming response
+   * @param callback - Optional callback function to process each chunk of the stream
+   * @returns Action output containing the generated PRD
+   */
+  async runStream(callback?: (chunk: string) => void): Promise<ActionOutput> {
+    try {
+      logger.info(`[${this.name}] Running WritePRD action with streaming`);
+      
+      // Get requirements from context
+      const requirements = this.getArg<string>('requirements') || '';
+      const format = this.getArg<string>('format') || 'markdown';
+      const audience = this.getArg<string>('audience') || 'development team';
+      
+      if (!requirements) {
+        return this.createOutput(
+          'No requirements provided. Please specify the product requirements.',
+          'failed'
+        );
+      }
+      
+      // Construct prompt for PRD generation
+      const prompt = this.constructPRDPrompt(requirements, format, audience);
+      
+      // Generate PRD using LLM with streaming
+      let fullResponse = '';
+      for await (const chunk of this.askStream(prompt)) {
+        fullResponse += chunk;
+        if (callback) {
+          callback(chunk);
+        }
+      }
+      
+      return this.createOutput(
+        fullResponse,
+        'completed',
+        { format, requirements }
+      );
+    } catch (error) {
+      logger.error(`[${this.name}] Error generating PRD with streaming:`, error);
+      await this.handleException(error as Error);
+      return this.createOutput(
+        `Failed to generate PRD: ${error}`,
+        'failed'
+      );
+    }
+  }
+
+  /**
    * Construct a prompt for PRD generation
    * @param requirements - User requirements
    * @param format - Output format

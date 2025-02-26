@@ -75,6 +75,13 @@ export interface LLMProvider {
   generateStream?(prompt: string, config?: Partial<LLMConfig>): AsyncIterable<string>;
 
   /**
+   * Chat with the LLM using streaming
+   * @param message - Message to send
+   * @returns LLM response stream
+   */
+  chatStream?(message: string): AsyncIterable<string>;
+
+  /**
    * Create text embeddings
    * @param text - Input text
    * @returns Embedding vector

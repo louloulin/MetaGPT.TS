@@ -238,7 +238,11 @@ export class VercelLLMProvider implements LLMProvider {
       // @ts-ignore - Type compatibility issue between different versions of AI SDK
       const model = this.getModelFunction(config?.model);
       
-      const result = await generateText({
+      // 导入generateText函数
+      const { generateText } = await import('ai');
+      
+      // 准备配置选项
+      const generateOptions: any = {
         model,
         prompt,
         temperature: config?.temperature,
@@ -247,7 +251,14 @@ export class VercelLLMProvider implements LLMProvider {
         frequencyPenalty: config?.frequencyPenalty,
         presencePenalty: config?.presencePenalty,
         ...this.config.extraConfig?.generateOptions,
-      });
+      };
+      
+      // 如果有系统提示，添加到配置中
+      if (this.systemPrompt && !generateOptions.system) {
+        generateOptions.system = this.systemPrompt;
+      }
+      
+      const result = await generateText(generateOptions);
 
       return result.text;
     } catch (error) {
@@ -263,16 +274,88 @@ export class VercelLLMProvider implements LLMProvider {
    */
   async *generateStream(prompt: string, config?: Partial<LLMConfig>): AsyncGenerator<string> {
     try {
-      // 使用generate方法获取完整响应，然后模拟流式响应
-      // 由于当前streamText在TypeScript类型中存在兼容性问题
-      const result = await this.generate(prompt, config);
+      // 确保提供商模块已加载完成
+      if (this.config.providerType !== 'openai' && !this.providerFunctions[this.config.providerType]) {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 等待动态导入完成
+      }
+
+      // @ts-ignore - Type compatibility issue between different versions of AI SDK
+      const model = this.getModelFunction(config?.model);
       
-      // 将完整的响应分成字符并逐个返回，模拟流式响应
-      const characters = result.split('');
-      for (const char of characters) {
-        yield char;
-        // 添加小延迟以模拟真实的流式响应
-        await new Promise(resolve => setTimeout(resolve, 5));
+      // 导入streamText函数
+      const { streamText } = await import('ai');
+      
+      // 准备配置选项
+      const streamOptions: any = {
+        model,
+        prompt,
+        temperature: config?.temperature,
+        maxTokens: config?.maxTokens,
+        topP: config?.topP,
+        frequencyPenalty: config?.frequencyPenalty,
+        presencePenalty: config?.presencePenalty,
+        ...this.config.extraConfig?.generateOptions,
+      };
+      
+      // 如果有系统提示，添加到配置中
+      if (this.systemPrompt && !streamOptions.system) {
+        streamOptions.system = this.systemPrompt;
+      }
+      
+      // 创建流式响应
+      const streamResult = await streamText(streamOptions);
+      
+      // 获取文本流
+      const textStream = streamResult.textStream;
+      
+      // 逐个返回流式响应的文本块
+      for await (const chunk of textStream) {
+        yield chunk;
+      }
+    } catch (error) {
+      throw this.handleError(error);
+    }
+  }
+
+  /**
+   * Chat with the LLM using streaming
+   * @param message - Message to send
+   * @returns LLM response stream
+   */
+  async *chatStream(message: string): AsyncGenerator<string> {
+    try {
+      // 导入streamText函数
+      const { streamText } = await import('ai');
+      
+      // 确保提供商模块已加载完成
+      if (this.config.providerType !== 'openai' && !this.providerFunctions[this.config.providerType]) {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 等待动态导入完成
+      }
+      
+      // @ts-ignore - Type compatibility issue between different versions of AI SDK
+      const model = this.getModelFunction();
+      
+      // 准备配置选项
+      const streamOptions: any = {
+        model,
+        prompt: message,
+        ...this.config.extraConfig?.generateOptions,
+      };
+      
+      // 如果有系统提示，添加到配置中
+      if (this.systemPrompt && !streamOptions.system) {
+        streamOptions.system = this.systemPrompt;
+      }
+      
+      // 创建流式响应
+      const streamResult = await streamText(streamOptions);
+      
+      // 获取文本流
+      const textStream = streamResult.textStream;
+      
+      // 逐个返回流式响应的文本块
+      for await (const chunk of textStream) {
+        yield chunk;
       }
     } catch (error) {
       throw this.handleError(error);
@@ -319,7 +402,36 @@ export class VercelLLMProvider implements LLMProvider {
    * @returns LLM response
    */
   async chat(message: string): Promise<string> {
-    return this.generate(message);
+    try {
+      // 导入generateText函数
+      const { generateText } = await import('ai');
+      
+      // 确保提供商模块已加载完成
+      if (this.config.providerType !== 'openai' && !this.providerFunctions[this.config.providerType]) {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 等待动态导入完成
+      }
+      
+      // @ts-ignore - Type compatibility issue between different versions of AI SDK
+      const model = this.getModelFunction();
+      
+      // 准备配置选项
+      const chatOptions: any = {
+        model,
+        prompt: message,
+        ...this.config.extraConfig?.generateOptions,
+      };
+      
+      // 如果有系统提示，添加到配置中
+      if (this.systemPrompt && !chatOptions.system) {
+        chatOptions.system = this.systemPrompt;
+      }
+      
+      const result = await generateText(chatOptions);
+      
+      return result.text;
+    } catch (error) {
+      throw this.handleError(error);
+    }
   }
 
   /**

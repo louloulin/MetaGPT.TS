@@ -89,7 +89,97 @@ async function main() {
   }
 }
 
+/**
+ * Example of using the ProductManager role with WritePRD action and streaming
+ */
+async function mainWithStreaming() {
+  try {
+    logger.info('Starting ProductManager example with streaming...');
+    
+    const apiKey = process.env.DASHSCOPE_API_KEY;
+    logger.info('✓ 检查环境变量');
+    
+    if (!apiKey) {
+      logger.error('❌ 错误: 请设置环境变量: DASHSCOPE_API_KEY');
+      process.exit(1);
+    }
+    logger.info('✓ 环境变量已设置');
+    
+    // 初始化Vercel LLM提供商 - 使用百炼大模型(qwen)
+    logger.info('⚙️ 配置百炼大模型...');
+    const llmProvider = new VercelLLMProvider({
+      providerType: 'qwen',
+      apiKey,
+      model: 'qwen-plus-2025-01-25',
+      baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', // 自定义API端点
+      extraConfig: {
+        qwenOptions: {
+          debug: true, // 启用调试日志
+        },
+        generateOptions: {
+          system: '你是一位专业的教程编写专家，擅长生成高质量、结构清晰的教程文档。'
+        }
+      }
+    });
+    
+    // Create WritePRD action
+    const writePRDAction = new WritePRD({
+      name: 'WritePRD',
+      description: 'Writes a Product Requirements Document',
+      llm: llmProvider,
+    });
+    
+    // Create ProductManager role with the WritePRD action
+    const productManager = new ProductManager(
+      'ProductOwner',
+      'Product Manager',
+      'Define clear product requirements',
+      'Focus on user needs and business goals',
+      [writePRDAction]
+    );
+    
+    // Create a user message with product requirements
+    const userMessage = new UserMessage(
+      'We need a mobile app for task management. It should allow users to create, edit, and delete tasks, ' +
+      'set due dates, add labels, and receive notifications. The app should sync across devices and work offline.'
+    );
+    
+    logger.info('Sending request to ProductManager...');
+    
+    // 使用公共方法设置需求参数
+    writePRDAction.setRequirements(userMessage.content);
+    logger.info('Requirements set for WritePRD action');
+    
+    // 直接使用流式方法运行WritePRD行动
+    logger.info('\n--- Streaming PRD Generation ---');
+    process.stdout.write('\n');
+    
+    const streamResult = await writePRDAction.runStream((chunk) => {
+      // 实时输出每个文本块
+      process.stdout.write(chunk);
+    });
+    
+    logger.info('\n\n--- Streaming Complete ---');
+    logger.info(`Status: ${streamResult.status}`);
+    logger.info('------------------------\n');
+  } catch (error) {
+    logger.error('Error in ProductManager streaming example:', error);
+    if (error instanceof Error) {
+      logger.error(`Error type: ${error.name}`);
+      logger.error(`Error message: ${error.message}`);
+      logger.error(`Error stack: ${error.stack}`);
+    }
+  }
+}
+
 // Run the example
 if (require.main === module) {
-  main().catch(error => logger.error('Unhandled error:', error));
+  // Choose which example to run
+  const useStreaming = true; // Set to false to use non-streaming version
+  
+  if (useStreaming) {
+    mainWithStreaming().catch(error => logger.error('Unhandled error:', error));
+  } else {
+    main().catch(error => logger.error('Unhandled error:', error));
+  }
 } 
