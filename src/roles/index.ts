@@ -13,4 +13,6 @@ export { QAEngineer } from './qa-engineer';
 export { Researcher } from './researcher';
 export { Searcher } from './searcher';
 export { Teacher } from './teacher';
-export { Assistant } from './assistant'; 
+export { Assistant } from './assistant';
+export { Sales } from './sales';
+export { CustomerService } from './customer-service'; 
