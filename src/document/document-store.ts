@@ -10,7 +10,8 @@
 
 import { promises as fs } from 'fs';
 import path from 'path';
-import { Document, DocumentImpl, IndexableDocument, IndexableDocumentImpl } from '../types/document';
+import type { Document, IndexableDocument } from '../types/document';
+import { DocumentImpl, IndexableDocumentImpl } from '../types/document';
 import { z } from 'zod';
 
 /**
@@ -192,8 +193,19 @@ export class BasicDocumentStore implements DocumentStore {
     };
     
     try {
-      // Check file size
+      // Check if file exists and get stats
       const stats = await fs.stat(filePath);
+      
+      // Check if it's a file
+      if (!stats.isFile()) {
+        return {
+          document: new DocumentImpl({ path: filePath }),
+          success: false,
+          error: 'Path does not point to a file',
+        };
+      }
+      
+      // Check file size
       if (stats.size > mergedConfig.parsingOptions.maxSize) {
         return {
           document: new DocumentImpl({ path: filePath }),
@@ -212,10 +224,10 @@ export class BasicDocumentStore implements DocumentStore {
         };
       }
       
-      // Load document
+      // Load document using DocumentImpl.fromPath
       const document = await DocumentImpl.fromPath(filePath);
       
-      // Store the document
+      // Store the document in memory
       this.documents.set(document.path || filePath, document);
       
       return {
@@ -229,6 +241,7 @@ export class BasicDocumentStore implements DocumentStore {
       };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to load document from ${filePath}:`, error);
       return {
         document: new DocumentImpl({ path: filePath }),
         success: false,
@@ -244,29 +257,53 @@ export class BasicDocumentStore implements DocumentStore {
    * @returns Array of document load results
    */
   async loadDocuments(dirPath: string, options?: Partial<DocumentStoreConfig>): Promise<DocumentLoadResult[]> {
+    const results: DocumentLoadResult[] = [];
+    
     try {
-      const files = await fs.readdir(dirPath);
-      const results: DocumentLoadResult[] = [];
+      // Check if directory exists
+      const stats = await fs.stat(dirPath);
+      if (!stats.isDirectory()) {
+        return [{
+          document: new DocumentImpl({ path: dirPath }),
+          success: false,
+          error: 'Path does not point to a directory'
+        }];
+      }
+
+      // Read directory contents
+      const entries = await fs.readdir(dirPath, { withFileTypes: true });
       
-      for (const file of files) {
-        const filePath = path.join(dirPath, file);
-        const stats = await fs.stat(filePath);
+      // Process each entry
+      for (const entry of entries) {
+        const fullPath = path.join(dirPath, entry.name);
         
-        if (stats.isDirectory()) {
-          continue; // Skip directories
+        try {
+          if (entry.isDirectory()) {
+            // Recursively load documents from subdirectory
+            const subResults = await this.loadDocuments(fullPath, options);
+            results.push(...subResults);
+          } else {
+            // Load individual document
+            const result = await this.loadDocument(fullPath, options);
+            results.push(result);
+          }
+        } catch (error) {
+          console.error(`Error processing ${fullPath}:`, error);
+          results.push({
+            document: new DocumentImpl({ path: fullPath }),
+            success: false,
+            error: `Failed to process: ${error instanceof Error ? error.message : String(error)}`
+          });
         }
-        
-        const result = await this.loadDocument(filePath, options);
-        results.push(result);
       }
       
       return results;
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
+    } catch (error) {
+      console.error(`Failed to load documents from directory ${dirPath}:`, error);
       return [{
         document: new DocumentImpl({ path: dirPath }),
         success: false,
-        error: `Failed to load documents from directory: ${message}`,
+        error: `Failed to load documents: ${error instanceof Error ? error.message : String(error)}`
       }];
     }
   }
@@ -404,16 +441,25 @@ export class BasicDocumentStore implements DocumentStore {
    * @returns Document if found, undefined otherwise
    */
   async getDocument(idOrPath: string): Promise<Document | undefined> {
-    // Check if the document is already in memory
-    if (this.documents.has(idOrPath)) {
-      return this.documents.get(idOrPath);
-    }
-    
-    // Try to load the document from disk
     try {
-      const result = await this.loadDocument(idOrPath);
-      return result.success ? result.document : undefined;
+      // First try to get from in-memory map
+      const doc = this.documents.get(idOrPath);
+      if (doc) {
+        return doc;
+      }
+
+      // If not found and looks like a file path, try to load from disk
+      if (path.isAbsolute(idOrPath) || idOrPath.includes('/') || idOrPath.includes('\\')) {
+        const result = await this.loadDocument(idOrPath);
+        if (result.success) {
+          return result.document;
+        }
+        console.error(`Failed to load document from path ${idOrPath}:`, result.error);
+      }
+
+      return undefined;
     } catch (error) {
+      console.error(`Error in getDocument for ${idOrPath}:`, error);
       return undefined;
     }
   }

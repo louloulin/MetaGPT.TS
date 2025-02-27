@@ -52,19 +52,36 @@ describe('Document Store', () => {
   
   describe('Document Loading', () => {
     it('should load a document from a file', async () => {
+      const mockContent = 'Test document content';
+      vi.mocked(fs.promises.readFile).mockResolvedValueOnce(mockContent);
+      
       const result = await documentStore.loadDocument('/test/documents/test.txt');
       
       expect(fs.promises.readFile).toHaveBeenCalledWith('/test/documents/test.txt', 'utf-8');
-      expect(result.document.content).toBe('Test document content');
+      expect(result.document.content).toBe(mockContent);
       expect(result.document.path).toBe('/test/documents/test.txt');
+      expect(result.success).toBe(true);
     });
     
     it('should load documents from a directory', async () => {
+      const mockFiles = ['file1.txt', 'file2.md'];
+      const mockContent = 'Test document content';
+      
+      vi.mocked(fs.promises.readdir).mockResolvedValueOnce(mockFiles as any);
+      vi.mocked(fs.promises.readFile).mockResolvedValue(mockContent);
+      vi.mocked(fs.promises.stat).mockResolvedValue({
+        isFile: () => true,
+        isDirectory: () => false,
+        size: 100
+      } as any);
+      
       const results = await documentStore.loadDocuments('/test/documents');
       
       expect(fs.promises.readdir).toHaveBeenCalledWith('/test/documents');
       expect(fs.promises.readFile).toHaveBeenCalledTimes(2);
       expect(results.length).toBe(2);
+      expect(results[0].success).toBe(true);
+      expect(results[0].document.content).toBe(mockContent);
     });
     
     it('should handle errors when loading documents', async () => {
@@ -73,6 +90,7 @@ describe('Document Store', () => {
       const result = await documentStore.loadDocument('/test/documents/nonexistent.txt');
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
+      expect(result.error).toContain('Failed to load document');
     });
   });
   
