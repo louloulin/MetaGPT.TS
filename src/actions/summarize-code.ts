@@ -140,86 +140,116 @@ export interface SummarizeCodeOptions {
  * Action for summarizing code
  */
 export class SummarizeCode extends BaseAction {
+  private options: SummarizeCodeOptions;
+
   constructor(config: ActionConfig) {
-    super({
-      ...config,
-      name: config.name || 'SummarizeCode',
-      description: config.description || 'Analyzes code and generates comprehensive summaries with functional descriptions, component breakdowns, and suggested improvements',
-    });
+    super(config);
+    this.options = {
+      level: config.args?.level || SummaryLevel.STANDARD,
+      focus_on_components: config.args?.focus_on_components ?? true,
+      focus_on_patterns: config.args?.focus_on_patterns ?? true,
+      focus_on_improvements: config.args?.focus_on_improvements ?? true,
+      focus_on_documentation: config.args?.focus_on_documentation ?? true,
+      include_code_examples: config.args?.include_code_examples ?? false,
+      max_components: config.args?.max_components || 10,
+      max_improvements: config.args?.max_improvements || 5
+    };
   }
 
-  /**
-   * Runs the SummarizeCode action
-   * @returns The code summary
-   */
   public async run(): Promise<ActionOutput> {
     try {
-      logger.info(`[${this.name}] Running SummarizeCode action`);
-      
-      // Get code and options from context
-      const code = this.getArg<string>('code');
-      const filePath = this.getArg<string>('file_path');
-      const language = this.getArg<string>('language');
-      const options = this.getArg<SummarizeCodeOptions>('options') || {};
-      
-      // Apply default options
-      const summaryOptions: SummarizeCodeOptions = {
-        level: options.level || SummaryLevel.STANDARD,
-        focus_on_components: options.focus_on_components !== undefined ? options.focus_on_components : true,
-        focus_on_patterns: options.focus_on_patterns !== undefined ? options.focus_on_patterns : true,
-        focus_on_improvements: options.focus_on_improvements !== undefined ? options.focus_on_improvements : true,
-        focus_on_documentation: options.focus_on_documentation !== undefined ? options.focus_on_documentation : true,
-        include_code_examples: options.include_code_examples !== undefined ? options.include_code_examples : false,
-        max_components: options.max_components || 20,
-        max_improvements: options.max_improvements || 5
-      };
-      
-      // Validate code input
-      if (!code) {
-        const basicSummary = {
-          overview: {
-            title: 'No Code Provided',
-            description: 'No code was provided for summarization.',
-            language: 'Unknown',
-            primary_purpose: 'N/A',
-            line_count: 0,
-            estimated_complexity: 'LOW'
-          }
+      // Check if there are any messages
+      const messages = this.context?.memory?.get();
+      if (!messages || messages.length === 0) {
+        return {
+          status: 'failed',
+          content: 'No messages available for code analysis'
         };
-        return this.createOutput(
-          this.formatSummary(basicSummary as CodeSummary, summaryOptions),
-          'completed'
-        );
+      }
+
+      // Get code content from messages
+      const codeContent = this.extractCodeContent(messages);
+      if (!codeContent) {
+        return {
+          status: 'completed',
+          content: this.formatSummary({
+            overview: {
+              title: 'Partial Summary',
+              description: 'Basic code description',
+              language: 'Unknown',
+              primary_purpose: 'Unable to automatically determine the primary purpose',
+              line_count: 1,
+              estimated_complexity: 'LOW'
+            },
+            components: [],
+            functional_areas: [{
+              name: 'Main Functionality',
+              description: 'The primary functionality of this code',
+              components: []
+            }],
+            design_patterns: [],
+            relationships: {
+              imports: [],
+              exports: [],
+              internal_dependencies: []
+            },
+            improvements: [{
+              description: 'Consider adding more comprehensive documentation',
+              rationale: 'Better documentation improves code maintainability',
+              priority: 'MEDIUM',
+              implementation_difficulty: 'EASY'
+            }],
+            documentation: {
+              quality: 'POOR',
+              coverage_percentage: 0,
+              missing_documentation: ['All sections need documentation'],
+              suggestions: ['Add comprehensive documentation']
+            }
+          }, this.options)
+        };
       }
 
       // Analyze code and generate summary
-      const summary = await this.analyzeCode(code, filePath, language, summaryOptions);
+      const filePath = this.extractFilePath(messages);
+      const language = await this.detectLanguage(codeContent, filePath);
+      const summary = await this.analyzeCode(codeContent, filePath, language, this.options);
+      const formattedSummary = this.formatSummary(summary, this.options);
 
-      // Format the summary for output
-      const formattedSummary = this.formatSummary(summary, summaryOptions);
-      
-      return this.createOutput(
-        formattedSummary,
-        'completed',
-        summary
-      );
+      return {
+        status: 'completed',
+        content: formattedSummary
+      };
     } catch (error) {
-      logger.error(`[${this.name}] Error in SummarizeCode action:`, error);
-      await this.handleException(error as Error);
-      
-      // Create a basic fallback summary
-      const fallbackSummary = this.createFallbackSummary(
-        this.getArg<string>('code') || '',
-        this.getArg<string>('language') || 'Unknown',
-        this.getArg<string>('file_path')
-      );
-      
-      return this.createOutput(
-        this.formatSummary(fallbackSummary, this.getArg<SummarizeCodeOptions>('options')),
-        'completed',
-        fallbackSummary
-      );
+      logger.error('Error in SummarizeCode:', error);
+      return {
+        status: 'failed',
+        content: `Failed to analyze code: ${error}`
+      };
     }
+  }
+
+  private extractCodeContent(messages: Message[]): string | null {
+    // Try to find code content in messages
+    for (const message of messages) {
+      if (message.content.includes('```')) {
+        const matches = message.content.match(/```[\w]*\n([\s\S]*?)```/);
+        if (matches && matches[1]) {
+          return matches[1].trim();
+        }
+      }
+    }
+    return null;
+  }
+
+  private extractFilePath(messages: Message[]): string | undefined {
+    // Try to find file path in messages
+    for (const message of messages) {
+      const filePathMatch = message.content.match(/file:?\s*([^\n]+)/i);
+      if (filePathMatch) {
+        return filePathMatch[1].trim();
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -237,130 +267,150 @@ export class SummarizeCode extends BaseAction {
     options?: SummarizeCodeOptions
   ): Promise<CodeSummary> {
     try {
-      // Detect language if not provided
-      const detectedLanguage = language || await this.detectLanguage(code, filePath);
+      // Prepare analysis prompt
+      const prompt = this.buildAnalysisPrompt(code, language || 'Unknown', options);
       
-      // Construct prompt for code analysis
-      const prompt = this.constructAnalysisPrompt(code, detectedLanguage, filePath, options);
-      
-      // Get LLM response
-      const response = await this.ask(prompt);
+      // Get analysis from LLM
+      const response = await this.llm.chat(prompt);
       
       try {
-        // Try to parse the JSON response
-        let summary: Partial<CodeSummary>;
-        try {
-          summary = JSON.parse(response) as Partial<CodeSummary>;
-        } catch (parseError) {
-          logger.error(`[${this.name}] Failed to parse JSON response:`, parseError);
-          logger.debug(`[${this.name}] Raw response:`, response);
-          
-          // Try to extract JSON from the response
-          const jsonMatch = response.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            try {
-              summary = JSON.parse(jsonMatch[0]) as Partial<CodeSummary>;
-            } catch (secondError) {
-              logger.error(`[${this.name}] Failed to extract and parse JSON:`, secondError);
-              throw new Error('Failed to parse code analysis response');
-            }
-          } else {
-            throw new Error('No valid JSON found in response');
-          }
-        }
+        // Try to parse LLM response
+        const summary = JSON.parse(response);
         
-        // Validate and ensure all required fields are present
-        if (!summary || typeof summary !== 'object') {
-          throw new Error('Invalid summary format');
-        }
-
-        // Create overview with defaults for missing fields
-        const overview = {
-          title: summary.overview?.title || 'Unknown Code',
-          description: summary.overview?.description || 'No description available',
-          language: summary.overview?.language || detectedLanguage,
-          primary_purpose: summary.overview?.primary_purpose || 'Unable to automatically determine the primary purpose',
-          line_count: summary.overview?.line_count || code.split('\n').length,
-          estimated_complexity: summary.overview?.estimated_complexity || 'LOW'
-        };
-
-        // Validate and normalize components
-        const components = Array.isArray(summary.components) ? summary.components.map(comp => ({
-          name: comp.name || 'Unknown Component',
-          type: comp.type || ComponentType.OTHER,
-          description: comp.description || 'No description available',
-          location: comp.location,
-          dependencies: Array.isArray(comp.dependencies) ? comp.dependencies : undefined,
-          complexity: typeof comp.complexity === 'number' ? comp.complexity : undefined,
-          lineCount: typeof comp.lineCount === 'number' ? comp.lineCount : undefined
-        })) : [];
-
-        // Validate and normalize functional areas
-        const functional_areas = Array.isArray(summary.functional_areas) ? summary.functional_areas.map(area => ({
-          name: area.name || 'Unknown Area',
-          description: area.description || 'No description available',
-          components: Array.isArray(area.components) ? area.components : []
-        })) : [];
-
-        // Validate and normalize design patterns
-        const design_patterns = Array.isArray(summary.design_patterns) ? summary.design_patterns.map(pattern => ({
-          name: pattern.name || 'Unknown Pattern',
-          confidence: typeof pattern.confidence === 'number' ? pattern.confidence : 0,
-          description: pattern.description || 'No description available',
-          location: pattern.location,
-          benefits: Array.isArray(pattern.benefits) ? pattern.benefits : []
-        })) : [];
-
-        // Validate and normalize relationships
-        const relationships = {
-          imports: Array.isArray(summary.relationships?.imports) ? summary.relationships.imports : [],
-          exports: Array.isArray(summary.relationships?.exports) ? summary.relationships.exports : [],
-          internal_dependencies: Array.isArray(summary.relationships?.internal_dependencies) ? 
-            summary.relationships.internal_dependencies.map(dep => ({
-              from: dep.from || '',
-              to: dep.to || '',
-              type: dep.type || 'USES'
-            })) : []
-        };
-
-        // Validate and normalize improvements
-        const improvements = Array.isArray(summary.improvements) ? summary.improvements.map(imp => ({
-          description: imp.description || 'Unknown improvement',
-          rationale: imp.rationale || 'No rationale provided',
-          priority: imp.priority || 'LOW',
-          implementation_difficulty: imp.implementation_difficulty || 'MODERATE',
-          code_example: imp.code_example
-        })) : [];
-
-        // Validate and normalize documentation
-        const documentation = {
-          quality: summary.documentation?.quality || 'POOR',
-          coverage_percentage: typeof summary.documentation?.coverage_percentage === 'number' ? 
-            summary.documentation.coverage_percentage : 0,
-          missing_documentation: Array.isArray(summary.documentation?.missing_documentation) ? 
-            summary.documentation.missing_documentation : ['All components'],
-          suggestions: Array.isArray(summary.documentation?.suggestions) ? 
-            summary.documentation.suggestions : ['Add JSDoc or similar documentation to functions and classes']
-        };
-
-        // Return complete and validated summary
-        return {
-          overview,
-          components,
-          functional_areas,
-          design_patterns,
-          relationships,
-          improvements,
-          documentation
-        };
+        // Validate and fill missing fields
+        return this.validateAndFillSummary(summary, code, language);
       } catch (parseError) {
-        logger.error(`[${this.name}] Error parsing code analysis response:`, parseError);
-        throw new Error('Failed to parse code analysis response');
+        logger.error('Failed to parse LLM response:', parseError);
+        return {
+          overview: {
+            title: 'Unable to generate detailed summary',
+            description: 'Failed to parse analysis results',
+            language: language || 'Unknown',
+            primary_purpose: 'Analysis failed due to parsing error',
+            line_count: code.split('\n').length,
+            estimated_complexity: 'LOW'
+          },
+          components: [],
+          functional_areas: [{
+            name: 'Basic Information',
+            description: 'Unable to analyze code components due to parsing error',
+            components: []
+          }],
+          design_patterns: [],
+          relationships: {
+            imports: [],
+            exports: [],
+            internal_dependencies: []
+          },
+          improvements: [{
+            description: 'Fix code analysis error',
+            rationale: 'Failed to parse analysis results: ' + (parseError instanceof Error ? parseError.message : String(parseError)),
+            priority: 'HIGH',
+            implementation_difficulty: 'MODERATE'
+          }],
+          documentation: {
+            quality: 'POOR',
+            coverage_percentage: 0,
+            missing_documentation: ['Analysis failed'],
+            suggestions: ['Fix code analysis error to enable proper documentation analysis']
+          }
+        };
       }
     } catch (error) {
-      logger.error(`[${this.name}] Error in analyzeCode:`, error);
-      throw error;
+      logger.error('Error in code analysis:', error);
+      return {
+        overview: {
+          title: 'Analysis Error',
+          description: 'Unable to generate detailed summary due to analysis error',
+          language: language || 'Unknown',
+          primary_purpose: 'Analysis failed',
+          line_count: code.split('\n').length,
+          estimated_complexity: 'LOW'
+        },
+        components: [],
+        functional_areas: [{
+          name: 'Basic Information',
+          description: 'Unable to analyze code components due to error',
+          components: []
+        }],
+        design_patterns: [],
+        relationships: {
+          imports: [],
+          exports: [],
+          internal_dependencies: []
+        },
+        improvements: [{
+          description: 'Fix code analysis error',
+          rationale: 'Code analysis failed: ' + (error instanceof Error ? error.message : String(error)),
+          priority: 'HIGH',
+          implementation_difficulty: 'MODERATE'
+        }],
+        documentation: {
+          quality: 'POOR',
+          coverage_percentage: 0,
+          missing_documentation: ['Analysis failed'],
+          suggestions: ['Fix code analysis error to enable proper documentation analysis']
+        }
+      };
     }
+  }
+
+  private validateAndFillSummary(summary: Partial<CodeSummary>, code: string, language?: string): CodeSummary {
+    // Fill missing overview fields
+    const overview = {
+      title: summary.overview?.title || 'Partial Summary',
+      description: summary.overview?.description || 'Basic code description',
+      language: summary.overview?.language || language || 'Unknown',
+      primary_purpose: summary.overview?.primary_purpose || 'Not specified',
+      line_count: summary.overview?.line_count || code.split('\n').length,
+      estimated_complexity: summary.overview?.estimated_complexity || 'LOW'
+    };
+
+    // Fill missing components
+    const components = summary.components || [];
+
+    // Fill missing functional areas
+    const functional_areas = summary.functional_areas || [{
+      name: 'Main Functionality',
+      description: 'The primary functionality of this code',
+      components: []
+    }];
+
+    // Fill missing design patterns
+    const design_patterns = summary.design_patterns || [];
+
+    // Fill missing relationships
+    const relationships = {
+      imports: summary.relationships?.imports || [],
+      exports: summary.relationships?.exports || [],
+      internal_dependencies: summary.relationships?.internal_dependencies || []
+    };
+
+    // Fill missing improvements
+    const improvements = summary.improvements || [{
+      description: 'Consider adding more comprehensive documentation',
+      rationale: 'Better documentation improves code maintainability',
+      priority: 'MEDIUM',
+      implementation_difficulty: 'EASY'
+    }];
+
+    // Fill missing documentation
+    const documentation = {
+      quality: summary.documentation?.quality || 'POOR',
+      coverage_percentage: summary.documentation?.coverage_percentage || 0,
+      missing_documentation: summary.documentation?.missing_documentation || ['Documentation needs improvement'],
+      suggestions: summary.documentation?.suggestions || ['Add comprehensive documentation']
+    };
+
+    return {
+      overview,
+      components,
+      functional_areas,
+      design_patterns,
+      relationships,
+      improvements,
+      documentation
+    };
   }
 
   /**
@@ -371,126 +421,29 @@ export class SummarizeCode extends BaseAction {
    * @param options Summarization options
    * @returns Prompt for the LLM
    */
-  private constructAnalysisPrompt(
-    code: string, 
-    language: string, 
-    filePath?: string,
-    options?: SummarizeCodeOptions
-  ): string {
+  private buildAnalysisPrompt(code: string, language: string, options?: SummarizeCodeOptions): string {
     const level = options?.level || SummaryLevel.STANDARD;
-    const focusComponents = options?.focus_on_components !== false;
-    const focusPatterns = options?.focus_on_patterns !== false;
-    const focusImprovements = options?.focus_on_improvements !== false;
-    const focusDocumentation = options?.focus_on_documentation !== false;
-    const includeExamples = options?.include_code_examples === true;
-    const maxComponents = options?.max_components || 20;
-    const maxImprovements = options?.max_improvements || 5;
     
-    let prompt = `
-    Please analyze the following ${language} code ${filePath ? `in file ${filePath}` : ''}:
-    
-    \`\`\`${language}
-    ${code}
-    \`\`\`
-    
-    Provide a ${level.toLowerCase()} summary of this code as a valid JSON object with the following structure:
-    
-    {
-      "overview": {
-        "title": "Brief title describing the code",
-        "description": "Overall description of what the code does",
-        "language": "${language}",
-        "primary_purpose": "Main purpose of this code",
-        "line_count": number of lines in the code,
-        "estimated_complexity": "LOW", "MEDIUM", or "HIGH"
-      },
-    `;
-    
-    if (focusComponents) {
-      prompt += `
-      "components": [
-        {
-          "name": "Component name",
-          "type": "Component type (CLASS, FUNCTION, INTERFACE, MODULE, CONSTANT, VARIABLE, HOOK, COMPONENT, CONFIG, UTILITY, OTHER)",
-          "description": "What this component does",
-          "location": "Location information if available",
-          "dependencies": ["List of dependencies"],
-          "complexity": numerical complexity score,
-          "lineCount": number of lines
-        }
-      ],
-      "functional_areas": [
-        {
-          "name": "Functional area name",
-          "description": "Description of this functional area",
-          "components": ["List of component names in this area"]
-        }
-      ],
-      `;
-    }
-    
-    if (focusPatterns) {
-      prompt += `
-      "design_patterns": [
-        {
-          "name": "Pattern name",
-          "confidence": confidence score from 0-1,
-          "description": "How this pattern is used in the code",
-          "location": "Where this pattern appears",
-          "benefits": ["Benefits of using this pattern"]
-        }
-      ],
-      "relationships": {
-        "imports": ["List of imports"],
-        "exports": ["List of exports"],
-        "internal_dependencies": [
-          {
-            "from": "Source component",
-            "to": "Target component",
-            "type": "Relationship type (USES, EXTENDS, IMPLEMENTS, INSTANTIATES)"
-          }
-        ]
-      },
-      `;
-    }
-    
-    if (focusImprovements) {
-      prompt += `
-      "improvements": [
-        {
-          "description": "Suggested improvement",
-          "rationale": "Why this improvement would be beneficial",
-          "priority": "Priority level (HIGH, MEDIUM, LOW)",
-          "implementation_difficulty": "Difficulty to implement (EASY, MODERATE, COMPLEX)"
-          ${includeExamples ? `,
-          "code_example": "Example code for this improvement"` : ''}
-        }
-      ],
-      `;
-    }
-    
-    if (focusDocumentation) {
-      prompt += `
-      "documentation": {
-        "quality": "Documentation quality (POOR, ADEQUATE, GOOD, EXCELLENT)",
-        "coverage_percentage": percentage of code that is documented,
-        "missing_documentation": ["List of components missing documentation"],
-        "suggestions": ["Documentation improvement suggestions"]
-      }
-      `;
-    }
-    
-    prompt += `
-    }
-    
-    Analysis guidelines:
-    - Limit to at most ${maxComponents} most significant components
-    - Provide up to ${maxImprovements} most valuable improvement suggestions
-    - For the ${level.toLowerCase()} summary level, ${this.getSummaryLevelGuidelines(level)}
-    - Focus on providing accurate and helpful insights
-    - Ensure the response is valid JSON
-    `;
-    
+    let prompt = `Please analyze the following ${language} code and provide a structured summary in JSON format.
+The summary should include:
+- Overview (title, description, language, primary purpose, line count, complexity)
+- Components (classes, functions, interfaces, etc.)
+- Functional areas (logical groupings of components)
+- Design patterns (if any)
+- Relationships (imports, exports, dependencies)
+- Potential improvements
+- Documentation analysis
+
+Level of detail: ${level}
+Focus areas:${options?.focus_on_components ? '\n- Components' : ''}${options?.focus_on_patterns ? '\n- Design patterns' : ''}${options?.focus_on_improvements ? '\n- Improvements' : ''}${options?.focus_on_documentation ? '\n- Documentation' : ''}
+
+Code to analyze:
+\`\`\`${language}
+${code}
+\`\`\`
+
+Please provide the analysis in a valid JSON format matching the CodeSummary interface.`;
+
     return prompt;
   }
 
@@ -502,13 +455,35 @@ export class SummarizeCode extends BaseAction {
   private getSummaryLevelGuidelines(level: SummaryLevel): string {
     switch (level) {
       case SummaryLevel.BRIEF:
-        return 'keep descriptions concise and focus only on the most important aspects';
+        return `Analysis Level: BRIEF
+- Provide a high-level overview
+- Focus on the most important components (max 3)
+- Include only critical improvements
+- Skip detailed pattern analysis`;
+
       case SummaryLevel.STANDARD:
-        return 'provide balanced descriptions with moderate detail';
+        return `Analysis Level: STANDARD
+- Provide a balanced analysis
+- Include main components and their relationships
+- Identify common design patterns
+- Suggest key improvements
+- Include basic documentation analysis`;
+
       case SummaryLevel.DETAILED:
-        return 'include comprehensive descriptions and capture nuanced details';
+        return `Analysis Level: DETAILED
+- Provide comprehensive analysis
+- Include all components and their relationships
+- Identify all design patterns with confidence scores
+- Suggest all possible improvements
+- Include detailed documentation analysis`;
+
       default:
-        return 'provide balanced descriptions with moderate detail';
+        return `Analysis Level: STANDARD
+- Provide a balanced analysis
+- Include main components and their relationships
+- Identify common design patterns
+- Suggest key improvements
+- Include basic documentation analysis`;
     }
   }
 
@@ -519,213 +494,80 @@ export class SummarizeCode extends BaseAction {
    * @returns Detected language
    */
   private async detectLanguage(code: string, filePath?: string): Promise<string> {
-    try {
-      // Try to detect from file extension first
-      if (filePath) {
-        const ext = filePath.split('.').pop()?.toLowerCase();
-        if (ext) {
-          const extensionMap: { [key: string]: string } = {
-            'ts': 'TypeScript',
-            'tsx': 'TypeScript',
-            'js': 'JavaScript',
-            'jsx': 'JavaScript',
-            'py': 'Python',
-            'java': 'Java',
-            'rb': 'Ruby',
-            'php': 'PHP',
-            'go': 'Go',
-            'rs': 'Rust',
-            'cs': 'C#',
-            'cpp': 'C++',
-            'cc': 'C++',
-            'cxx': 'C++',
-            'c': 'C',
-            'swift': 'Swift',
-            'kt': 'Kotlin',
-            'scala': 'Scala',
-            'r': 'R',
-            'dart': 'Dart',
-            'sh': 'Shell',
-            'bash': 'Shell',
-            'sql': 'SQL'
-          };
-          
-          if (ext in extensionMap) {
-            return extensionMap[ext];
-          }
+    // First try to detect from file extension
+    if (filePath) {
+      const ext = filePath.split('.').pop()?.toLowerCase();
+      if (ext) {
+        const extensionMap: { [key: string]: string } = {
+          'ts': 'TypeScript',
+          'tsx': 'TypeScript',
+          'js': 'JavaScript',
+          'jsx': 'JavaScript',
+          'py': 'Python',
+          'java': 'Java',
+          'cpp': 'C++',
+          'c': 'C',
+          'cs': 'C#',
+          'go': 'Go',
+          'rs': 'Rust',
+          'rb': 'Ruby',
+          'php': 'PHP',
+          'swift': 'Swift',
+          'kt': 'Kotlin',
+          'scala': 'Scala',
+          'html': 'HTML',
+          'css': 'CSS',
+          'scss': 'SCSS',
+          'sql': 'SQL',
+          'sh': 'Shell',
+          'md': 'Markdown'
+        };
+        if (extensionMap[ext]) {
+          return extensionMap[ext];
         }
       }
-
-      // Try to detect from code content
-      const codeLines = code.split('\n');
-      const firstLine = codeLines[0]?.toLowerCase() || '';
-      const firstNonEmptyLine = codeLines.find(line => line.trim().length > 0)?.toLowerCase() || '';
-
-      // Check for shebang
-      if (firstLine.startsWith('#!')) {
-        if (firstLine.includes('python')) return 'Python';
-        if (firstLine.includes('node')) return 'JavaScript';
-        if (firstLine.includes('bash') || firstLine.includes('sh')) return 'Shell';
-      }
-
-      // Check for language-specific patterns
-      if (firstNonEmptyLine.includes('<?php')) return 'PHP';
-
-      // Look for language-specific keywords and patterns in first 1000 characters
-      const codeSnippet = code.substring(0, 1000);
-      
-      const languagePatterns: [RegExp, string][] = [
-        [/\b(interface|namespace|type)\s+\w+/i, 'TypeScript'],
-        [/\b(import\s+React|export\s+default|const\s+\w+\s*=\s*\(\)\s*=>)/i, 'JavaScript'],
-        [/\b(def\s+\w+|import\s+\w+\s*:\s*\w+)/i, 'Python'],
-        [/\b(public|private)\s+class\s+\w+/i, 'Java'],
-        [/\b(func\s+\w+|package\s+\w+)/i, 'Go'],
-        [/\b(fn\s+\w+|pub\s+\w+)/i, 'Rust'],
-        [/\busing\s+System;/i, 'C#'],
-        [/#include\s*<\w+>/i, 'C++'],
-        [/\b(module|class)\s+\w+\s*\n\s*end\b/i, 'Ruby']
-      ];
-
-      for (const [pattern, language] of languagePatterns) {
-        if (pattern.test(codeSnippet)) {
-          return language;
-        }
-      }
-
-      // If still uncertain, try to detect from imports and common patterns
-      const importPatterns: [RegExp, string][] = [
-        [/\bimport\s+{\s*[\w\s,]+}\s+from\s+['"][@\w/-]+['"]/i, 'TypeScript'],
-        [/\brequire\(['"][\w/-]+['"]\)/i, 'JavaScript'],
-        [/\bfrom\s+[\w.]+\s+import\s+[\w*,\s]+/i, 'Python'],
-        [/\bimport\s+[\w.]+;/i, 'Java']
-      ];
-
-      for (const [pattern, language] of importPatterns) {
-        if (pattern.test(codeSnippet)) {
-          return language;
-        }
-      }
-
-      // If still uncertain and code is non-empty, ask LLM
-      if (code.trim().length > 0) {
-        try {
-          const prompt = `Please identify the programming language of this code. Respond with ONLY the language name:\n\n${codeSnippet}`;
-          const response = await this.ask(prompt);
-          if (response && typeof response === 'string') {
-            const detectedLanguage = response.trim();
-            // Validate the response is a known language
-            const knownLanguages = new Set([
-              'TypeScript', 'JavaScript', 'Python', 'Java', 'Ruby', 'PHP',
-              'Go', 'Rust', 'C#', 'C++', 'C', 'Swift', 'Kotlin', 'Scala',
-              'R', 'Dart', 'Shell', 'SQL'
-            ]);
-            if (knownLanguages.has(detectedLanguage)) {
-              return detectedLanguage;
-            }
-          }
-        } catch (error) {
-          logger.error(`[${this.name}] Error asking LLM for language detection:`, error);
-        }
-      }
-
-      // Default to Unknown if all detection methods fail
-      return 'Unknown';
-    } catch (error) {
-      logger.error(`[${this.name}] Error detecting language:`, error);
-      return 'Unknown';
     }
-  }
 
-  /**
-   * Creates a fallback summary when parsing fails
-   * @param code The code to summarize
-   * @param language The programming language
-   * @param filePath Optional file path
-   * @returns Fallback code summary
-   */
-  private createFallbackSummary(code: string, language: string, filePath?: string): CodeSummary {
-    // Count lines as a basic metric
-    const lineCount = code.split('\n').length;
+    // Try to detect from code content
+    const firstLine = code.split('\n')[0].trim();
     
-    // Simple component identification based on patterns
-    const components: CodeComponent[] = [];
-    
-    // Simple regular expression to find potential functions or classes
-    const functionMatches = code.match(/function\s+(\w+)\s*\(/g) || [];
-    const classMatches = code.match(/class\s+(\w+)/g) || [];
-    const constMatches = code.match(/const\s+(\w+)\s*=/g) || [];
-    
-    // Extract names and create basic components
-    functionMatches.forEach((match, index) => {
-      if (index < 5) { // Limit to 5 functions
-        const name = match.replace(/function\s+/, '').replace(/\s*\($/, '');
-        components.push({
-          name,
-          type: ComponentType.FUNCTION,
-          description: `Function that appears to handle some functionality`,
-          lineCount: 0
-        });
-      }
-    });
-    
-    classMatches.forEach((match, index) => {
-      if (index < 3) { // Limit to 3 classes
-        const name = match.replace(/class\s+/, '');
-        components.push({
-          name,
-          type: ComponentType.CLASS,
-          description: `Class that likely encapsulates related functionality`,
-          lineCount: 0
-        });
-      }
-    });
-    
-    constMatches.forEach((match, index) => {
-      if (index < 3) { // Limit to 3 constants
-        const name = match.replace(/const\s+/, '').replace(/\s*=$/, '');
-        components.push({
-          name,
-          type: ComponentType.CONSTANT,
-          description: `Constant value used in the code`,
-          lineCount: 0
-        });
-      }
-    });
-    
-    return {
-      overview: {
-        title: filePath ? `Code in ${filePath.split('/').pop()}` : `${language} Code`,
-        description: "This is a basic fallback summary as the detailed analysis failed.",
-        language,
-        primary_purpose: "Unable to automatically determine the primary purpose",
-        line_count: lineCount,
-        estimated_complexity: lineCount < 100 ? 'LOW' : lineCount < 500 ? 'MEDIUM' : 'HIGH'
-      },
-      components,
-      functional_areas: [{
-        name: "Main Functionality",
-        description: "The primary functionality of this code",
-        components: components.map(c => c.name)
-      }],
-      design_patterns: [],
-      relationships: {
-        imports: [],
-        exports: [],
-        internal_dependencies: []
-      },
-      improvements: [{
-        description: "Consider adding more comprehensive documentation",
-        rationale: "Better documentation improves code maintainability",
-        priority: 'MEDIUM',
-        implementation_difficulty: 'EASY'
-      }],
-      documentation: {
-        quality: 'POOR',
-        coverage_percentage: 0,
-        missing_documentation: ['All components'],
-        suggestions: ['Add JSDoc or similar documentation to functions and classes']
-      }
-    };
+    // Check for shebang
+    if (firstLine.startsWith('#!')) {
+      if (firstLine.includes('python')) return 'Python';
+      if (firstLine.includes('node')) return 'JavaScript';
+      if (firstLine.includes('ruby')) return 'Ruby';
+      if (firstLine.includes('php')) return 'PHP';
+      if (firstLine.includes('perl')) return 'Perl';
+    }
+
+    // Check for common language patterns
+    if (code.includes('import React') || code.includes('export default') || code.includes('const') || code.includes('let')) {
+      return 'JavaScript';
+    }
+    if (code.includes('import { Component }') || code.includes('interface ') || code.includes('type ')) {
+      return 'TypeScript';
+    }
+    if (code.includes('import ') && code.includes('from ') && code.includes('def ')) {
+      return 'Python';
+    }
+    if (code.includes('public class ') || code.includes('private class ')) {
+      return 'Java';
+    }
+    if (code.includes('<?php')) {
+      return 'PHP';
+    }
+    if (code.includes('using System;') || code.includes('namespace ')) {
+      return 'C#';
+    }
+    if (code.includes('#include <')) {
+      return code.includes('iostream') ? 'C++' : 'C';
+    }
+    if (code.includes('package ') && code.includes('func ')) {
+      return 'Go';
+    }
+
+    // Default to Unknown if no pattern matches
+    return 'Unknown';
   }
 
   /**
@@ -734,135 +576,104 @@ export class SummarizeCode extends BaseAction {
    * @param options Summarization options
    * @returns Formatted markdown string
    */
-  private formatSummary(summary: CodeSummary, options?: SummarizeCodeOptions): string {
-    const level = options?.level || SummaryLevel.STANDARD;
-    let output = '';
+  private formatSummary(summary: Partial<CodeSummary>, options: SummarizeCodeOptions): string {
+    let content = '# Code Summary\n\n';
 
-    // Title and overview section - always included
-    output += `# Code Summary: ${summary.overview.title}\n\n`;
-    output += `## Overview\n\n`;
-    output += `${summary.overview.description}\n\n`;
-    output += `**Language**: ${summary.overview.language}\n`;
-    output += `**Primary Purpose**: ${summary.overview.primary_purpose}\n`;
-    output += `**Line Count**: ${summary.overview.line_count}\n`;
-    output += `**Complexity**: ${summary.overview.estimated_complexity}\n\n`;
+    // Overview section
+    content += '## Overview\n\n';
+    if (summary.overview) {
+      content += `${summary.overview.title || 'Partial Summary'}\n\n`;
+      content += `${summary.overview.description || 'Basic code description'}\n\n`;
+      content += `**Language**: ${summary.overview.language || 'Unknown'}\n`;
+      content += `**Primary Purpose**: ${summary.overview.primary_purpose || 'Not specified'}\n`;
+      content += `**Line Count**: ${summary.overview.line_count || 0}\n`;
+      content += `**Complexity**: ${summary.overview.estimated_complexity || 'LOW'}\n\n`;
+    } else {
+      content += 'Partial Summary\n\nBasic code description\n\n';
+      content += '**Language**: Unknown\n';
+      content += '**Primary Purpose**: Not specified\n';
+      content += '**Line Count**: 0\n';
+      content += '**Complexity**: LOW\n\n';
+    }
 
-    // Additional sections based on summary level
-    if (level !== SummaryLevel.BRIEF) {
-      // Components section
-      if (options?.focus_on_components !== false && summary.components.length > 0) {
-        output += `## Components\n\n`;
-        for (const component of summary.components) {
-          output += `### ${component.name}\n\n`;
-          output += `**Type**: ${component.type}\n`;
-          output += `**Description**: ${component.description}\n`;
-          if (level === SummaryLevel.DETAILED) {
-            if (component.location) output += `**Location**: ${component.location}\n`;
-            if (component.dependencies) output += `**Dependencies**: ${component.dependencies.join(', ')}\n`;
-            if (component.complexity) output += `**Complexity Score**: ${component.complexity}\n`;
-            if (component.lineCount) output += `**Line Count**: ${component.lineCount}\n`;
-          }
-          output += '\n';
-        }
+    // Components section (if enabled and available)
+    if (options.focus_on_components && summary.components?.length) {
+      content += '## Components\n\n';
+      for (const component of summary.components.slice(0, options.max_components)) {
+        content += `### ${component.name}\n`;
+        content += `**Type**: ${component.type}\n`;
+        content += `${component.description}\n\n`;
       }
+    } else if (options.focus_on_components) {
+      content += '## Components\n\n';
+      content += 'No components identified\n\n';
+    }
 
-      // Functional areas section
-      if (summary.functional_areas.length > 0) {
-        output += `## Functional Areas\n\n`;
+    // Rest of the formatting based on summary level
+    if (options.level === SummaryLevel.STANDARD || options.level === SummaryLevel.DETAILED) {
+      // Add functional areas
+      if (summary.functional_areas?.length) {
+        content += '## Functional Areas\n\n';
         for (const area of summary.functional_areas) {
-          output += `### ${area.name}\n\n`;
-          output += `${area.description}\n\n`;
-          if (level === SummaryLevel.DETAILED && area.components.length > 0) {
-            output += `**Components**: ${area.components.join(', ')}\n\n`;
-          }
+          content += `### ${area.name}\n`;
+          content += `${area.description}\n\n`;
         }
       }
 
-      // Design patterns section
-      if (options?.focus_on_patterns !== false && summary.design_patterns.length > 0) {
-        output += `## Design Patterns\n\n`;
-        for (const pattern of summary.design_patterns) {
-          output += `### ${pattern.name}\n\n`;
-          output += `**Confidence**: ${Math.round(pattern.confidence * 100)}%\n`;
-          output += `**Description**: ${pattern.description}\n`;
-          if (level === SummaryLevel.DETAILED) {
-            if (pattern.location) output += `**Location**: ${pattern.location}\n`;
-            if (pattern.benefits.length > 0) {
-              output += `\n**Benefits**:\n`;
-              pattern.benefits.forEach(benefit => output += `- ${benefit}\n`);
-            }
-          }
-          output += '\n';
+      // Add relationships
+      if (summary.relationships) {
+        content += '## Relationships\n\n';
+        if (summary.relationships.imports?.length) {
+          content += '### Imports\n';
+          content += summary.relationships.imports.join(', ') + '\n\n';
         }
-      }
-
-      // Dependencies and relationships section
-      if (level === SummaryLevel.DETAILED && 
-          (summary.relationships.imports.length > 0 || 
-           summary.relationships.exports.length > 0 || 
-           summary.relationships.internal_dependencies.length > 0)) {
-        output += `## Dependencies and Relationships\n\n`;
-        
-        if (summary.relationships.imports.length > 0) {
-          output += `### External Dependencies\n\n`;
-          summary.relationships.imports.forEach(imp => output += `- ${imp}\n`);
-          output += '\n';
-        }
-        
-        if (summary.relationships.exports.length > 0) {
-          output += `### Exports\n\n`;
-          summary.relationships.exports.forEach(exp => output += `- ${exp}\n`);
-          output += '\n';
-        }
-        
-        if (summary.relationships.internal_dependencies.length > 0) {
-          output += `### Internal Dependencies\n\n`;
-          summary.relationships.internal_dependencies.forEach(dep => 
-            output += `- ${dep.from} ${dep.type} ${dep.to}\n`
-          );
-          output += '\n';
-        }
-      }
-
-      // Improvements section
-      if (options?.focus_on_improvements !== false && summary.improvements.length > 0) {
-        output += `## Suggested Improvements\n\n`;
-        for (const improvement of summary.improvements) {
-          output += `### ${improvement.description}\n\n`;
-          output += `**Rationale**: ${improvement.rationale}\n`;
-          output += `**Priority**: ${improvement.priority}\n`;
-          output += `**Difficulty**: ${improvement.implementation_difficulty}\n`;
-          if (level === SummaryLevel.DETAILED && improvement.code_example) {
-            output += `\n**Example**:\n\`\`\`\n${improvement.code_example}\n\`\`\`\n`;
-          }
-          output += '\n';
-        }
-      }
-
-      // Documentation section
-      if (options?.focus_on_documentation !== false) {
-        output += `## Documentation Analysis\n\n`;
-        output += `**Quality**: ${summary.documentation.quality === 'POOR' ? '❌' : '✅'} ${summary.documentation.quality}\n`;
-        output += `**Coverage**: ${summary.documentation.coverage_percentage}%\n\n`;
-        
-        if (summary.documentation.missing_documentation.length > 0) {
-          output += `**Missing Documentation**:\n\n`;
-          summary.documentation.missing_documentation.forEach(doc => 
-            output += `- ${doc}\n`
-          );
-          output += '\n';
-        }
-        
-        if (summary.documentation.suggestions.length > 0) {
-          output += `**Suggestions**:\n\n`;
-          summary.documentation.suggestions.forEach(suggestion => 
-            output += `- ${suggestion}\n`
-          );
-          output += '\n';
+        if (summary.relationships.exports?.length) {
+          content += '### Exports\n';
+          content += summary.relationships.exports.join(', ') + '\n\n';
         }
       }
     }
 
-    return output.trim();
+    if (options.level === SummaryLevel.DETAILED) {
+      // Add design patterns
+      if (options.focus_on_patterns && summary.design_patterns?.length) {
+        content += '## Design Patterns\n\n';
+        for (const pattern of summary.design_patterns) {
+          content += `### ${pattern.name}\n`;
+          content += `${pattern.description}\n`;
+          content += `**Confidence**: ${Math.round(pattern.confidence * 100)}%\n\n`;
+        }
+      }
+
+      // Add improvements
+      if (options.focus_on_improvements && summary.improvements?.length) {
+        content += '## Suggested Improvements\n\n';
+        for (const improvement of summary.improvements.slice(0, options.max_improvements)) {
+          content += `### ${improvement.description}\n\n`;
+          content += `**Rationale**: ${improvement.rationale}\n`;
+          content += `**Priority**: ${improvement.priority}\n`;
+          content += `**Difficulty**: ${improvement.implementation_difficulty}\n\n`;
+        }
+      }
+
+      // Add documentation analysis
+      if (options.focus_on_documentation && summary.documentation) {
+        content += '## Documentation Analysis\n\n';
+        content += `**Quality**: ${summary.documentation.quality}\n`;
+        content += `**Coverage**: ${summary.documentation.coverage_percentage}%\n\n`;
+
+        if (summary.documentation.missing_documentation?.length) {
+          content += '### Missing Documentation\n';
+          content += summary.documentation.missing_documentation.map(item => `- ${item}`).join('\n') + '\n\n';
+        }
+
+        if (summary.documentation.suggestions?.length) {
+          content += '### Documentation Suggestions\n';
+          content += summary.documentation.suggestions.map(item => `- ${item}`).join('\n') + '\n\n';
+        }
+      }
+    }
+
+    return content;
   }
 } 

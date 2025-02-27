@@ -84,216 +84,203 @@ export class WriteReport extends BaseAction {
   protected args: WriteReportArgs;
 
   constructor(config: any) {
-    super({
-      name: 'WriteReport',
-      ...config,
-    });
-    this.args = config.args || {};
+    super(config);
+    this.args = {
+      report_type: config.args?.report_type || ReportType.PROJECT_STATUS,
+      format: config.args?.format || ReportFormat.DETAILED,
+      author: config.args?.author,
+      recipients: config.args?.recipients,
+      include_metrics: config.args?.include_metrics ?? true,
+      include_recommendations: config.args?.include_recommendations ?? true,
+      max_length: config.args?.max_length
+    };
+  }
+
+  public async run(): Promise<ActionOutput> {
+    try {
+      // Check if there are any messages
+      const messages = this.context?.memory?.get();
+      if (!messages || messages.length === 0) {
+        return {
+          status: 'failed',
+          content: 'No messages available for report generation'
+        };
+      }
+
+      // Generate report based on messages
+      const prompt = this.preparePrompt(messages);
+      let report: Report;
+      
+      try {
+        report = await this.generateReport(prompt);
+      } catch (error) {
+        logger.error('Error generating report:', error);
+        report = this.createFallbackReport(prompt);
+      }
+
+      // Format the report
+      const formattedReport = this.formatReport(report);
+
+      return {
+        status: 'completed',
+        content: formattedReport
+      };
+    } catch (error) {
+      logger.error('Error in WriteReport:', error);
+      return {
+        status: 'failed',
+        content: `Failed to generate report: ${error}`
+      };
+    }
+  }
+
+  private preparePrompt(messages: any[]): string {
+    // Extract relevant information from messages
+    const messageContent = messages.map(m => m.content).join('\n');
+    return `Generate a ${this.args.format} report of type ${this.args.report_type} based on the following information:\n\n${messageContent}`;
   }
 
   private async generateReport(prompt: string): Promise<Report> {
-    logger.debug('[WriteReport] Generating report for:', prompt);
-
-    const systemPrompt = `You are a report writing expert. Create a comprehensive report based on the given topic.
-The report should include:
-1. Executive summary
-2. Detailed sections with key points
-3. Data and metrics where relevant
-4. Conclusions and recommendations
-5. Next steps if applicable
-
-Provide your report in a structured JSON format matching the Report interface.`;
-
-    try {
-      const response = await this.llm.chat(systemPrompt + "\n\nReport topic: " + prompt);
-      const report = JSON.parse(response);
-
-      return {
-        title: report.title || 'Untitled Report',
-        type: report.type || this.args.report_type || ReportType.SUMMARY,
-        format: report.format || this.args.format || ReportFormat.DETAILED,
-        executive_summary: report.executive_summary || '',
-        date: report.date || new Date().toISOString(),
-        author: report.author || this.args.author || 'System Generated',
-        recipients: report.recipients || this.args.recipients,
-        sections: report.sections || [],
-        metrics: report.metrics,
-        conclusions: report.conclusions || [],
-        recommendations: report.recommendations || [],
-        next_steps: report.next_steps,
-        appendices: report.appendices
-      };
-    } catch (error) {
-      logger.error('[WriteReport] Error generating report:', error);
-      return this.createFallbackReport(prompt);
+    if (!this.llm) {
+      throw new Error('LLM not initialized');
     }
+
+    const response = await this.llm.chat(prompt);
+    const report = JSON.parse(response);
+
+    return {
+      title: report.title || 'Generated Report',
+      type: report.type || this.args.report_type,
+      format: report.format || this.args.format,
+      executive_summary: report.executive_summary || 'No summary provided',
+      date: report.date || new Date().toISOString(),
+      author: report.author || this.args.author || 'System Generated',
+      sections: report.sections || [],
+      conclusions: report.conclusions || [],
+      recommendations: report.recommendations || [],
+      metrics: report.metrics || []
+    };
   }
 
   private createFallbackReport(prompt: string): Report {
     return {
       title: 'Basic Report',
-      type: this.args.report_type || ReportType.SUMMARY,
+      type: this.args.report_type || ReportType.PROJECT_STATUS,
       format: this.args.format || ReportFormat.DETAILED,
       executive_summary: `Basic report for: ${prompt}`,
       date: new Date().toISOString(),
       author: this.args.author || 'System Generated',
-      sections: [
-        {
-          title: 'Overview',
-          content: 'This is a basic report generated due to an error in the report generation process.',
-          key_points: ['Report generation encountered an error', 'Basic information is provided']
-        }
-      ],
+      sections: [{
+        title: 'Overview',
+        content: 'This is a basic report generated due to an error in the report generation process.',
+        key_points: [
+          'Report generation encountered an error',
+          'Basic information is provided'
+        ]
+      }],
       conclusions: ['Further analysis may be required'],
-      recommendations: ['Review and regenerate the report with more specific parameters']
+      recommendations: ['Review and regenerate the report with more specific parameters'],
+      metrics: []
     };
   }
 
   private formatReport(report: Report): string {
-    let content = `# ${report.title}\n\n`;
+    let output = `# ${report.title}\n\n`;
+    output += `Type: ${report.type}\n`;
+    output += `Format: ${report.format}\n`;
+    output += `Date: ${report.date}\n`;
+    output += `Author: ${report.author}\n\n`;
 
-    // Add type and format
-    content += `Type: ${report.type}\n`;
-    content += `Format: ${report.format}\n`;
-    
-    // Add date and author
-    content += `Date: ${report.date}\n`;
-    content += `Author: ${report.author}\n\n`;
+    if (report.executive_summary) {
+      output += `## Executive Summary\n${report.executive_summary}\n\n`;
+    }
 
-    // Add executive summary
-    content += `## Executive Summary\n${report.executive_summary}\n\n`;
-
-    // Add sections
+    // Format sections
     report.sections.forEach(section => {
-      content += this.formatSection(section, 2);
+      output += this.formatSection(section, 2);
     });
 
-    // Add metrics if present
-    if (report.metrics && report.metrics.length > 0) {
-      content += '## Key Metrics\n\n';
+    // Add metrics if included
+    if (this.args.include_metrics && report.metrics && report.metrics.length > 0) {
+      output += `## Key Metrics\n\n`;
       report.metrics.forEach(metric => {
-        content += `${metric.name}: ${metric.value}${metric.target ? ` (Target: ${metric.target})` : ''} - ${metric.status}\n`;
+        output += `${metric.name}: ${metric.value}${metric.target ? ` (Target: ${metric.target})` : ''} - ${metric.status}\n\n`;
       });
-      content += '\n';
     }
 
     // Add conclusions
     if (report.conclusions.length > 0) {
-      content += '## Conclusions\n';
+      output += `## Conclusions\n`;
       report.conclusions.forEach(conclusion => {
-        content += `- ${conclusion}\n`;
+        output += `- ${conclusion}\n`;
       });
-      content += '\n';
+      output += '\n';
     }
 
-    // Add recommendations
-    if (report.recommendations.length > 0) {
-      content += '## Recommendations\n';
-      report.recommendations.forEach(recommendation => {
-        content += `- ${recommendation}\n`;
+    // Add recommendations if included
+    if (this.args.include_recommendations && report.recommendations.length > 0) {
+      output += `## Recommendations\n`;
+      report.recommendations.forEach(rec => {
+        output += `- ${rec}\n`;
       });
-      content += '\n';
+      output += '\n';
     }
 
-    // Add next steps if present
+    // Add next steps if available
     if (report.next_steps && report.next_steps.length > 0) {
-      content += '## Next Steps\n';
+      output += `## Next Steps\n`;
       report.next_steps.forEach(step => {
-        content += `- ${step}\n`;
+        output += `- ${step}\n`;
       });
-      content += '\n';
+      output += '\n';
     }
 
-    return content;
+    return output;
   }
 
   private formatSection(section: ReportSection, level: number): string {
     const heading = '#'.repeat(level);
-    let content = `${heading} ${section.title}\n\n${section.content}\n\n`;
+    let output = `${heading} ${section.title}\n\n`;
+    
+    if (section.content) {
+      output += `${section.content}\n\n`;
+    }
 
     if (section.key_points && section.key_points.length > 0) {
-      content += '### Key Points\n';
+      output += `### Key Points\n`;
       section.key_points.forEach(point => {
-        content += `- ${point}\n`;
+        output += `- ${point}\n`;
       });
-      content += '\n';
+      output += '\n';
     }
 
     if (section.data_points && section.data_points.length > 0) {
-      content += '### Data Points\n';
-      section.data_points.forEach(point => {
-        content += `- ${point.label}: ${point.value}${point.unit ? ` ${point.unit}` : ''}`;
-        if (point.trend) {
-          content += ` (${point.trend}`;
-          if (point.change_percentage !== undefined) {
-            content += ` ${point.change_percentage}%`;
-          }
-          content += ')';
-        }
-        content += '\n';
+      output += `### Data Points\n`;
+      section.data_points.forEach(dp => {
+        let dataPoint = `- ${dp.label}: ${dp.value}`;
+        if (dp.unit) dataPoint += ` ${dp.unit}`;
+        if (dp.trend) dataPoint += ` (${dp.trend}`;
+        if (dp.change_percentage) dataPoint += ` ${dp.change_percentage}%`;
+        if (dp.trend) dataPoint += ')';
+        output += `${dataPoint}\n`;
       });
-      content += '\n';
-    }
-
-    if (section.recommendations && section.recommendations.length > 0) {
-      content += '### Recommendations\n';
-      section.recommendations.forEach(rec => {
-        content += `- ${rec}\n`;
-      });
-      content += '\n';
-    }
-
-    if (section.references && section.references.length > 0) {
-      content += '### References\n';
-      section.references.forEach(ref => {
-        content += `- ${ref}\n`;
-      });
-      content += '\n';
+      output += '\n';
     }
 
     if (section.subsections) {
       section.subsections.forEach(subsection => {
-        content += this.formatSection(subsection, level + 1);
+        output += this.formatSection(subsection, level + 1);
       });
     }
 
-    return content;
-  }
-
-  public async run(): Promise<ActionOutput> {
-    const messages = this.context.memory.getMessages();
-    if (messages.length === 0) {
-      const basicReport = {
-        title: 'Empty Report',
-        type: this.args.report_type || ReportType.SUMMARY,
-        format: this.args.format || ReportFormat.DETAILED,
-        executive_summary: 'No messages available for report generation',
-        date: new Date().toISOString(),
-        author: this.args.author || 'System Generated',
-        sections: [
-          {
-            title: 'Status',
-            content: 'No content available for report generation',
-            key_points: ['No messages in memory']
-          }
-        ],
-        conclusions: ['Report generation skipped due to lack of input'],
-        recommendations: ['Please provide messages for report generation']
-      };
-
-      return {
-        status: 'completed',
-        content: this.formatReport(basicReport)
-      };
+    if (section.recommendations && section.recommendations.length > 0) {
+      output += `### Recommendations\n`;
+      section.recommendations.forEach(rec => {
+        output += `- ${rec}\n`;
+      });
+      output += '\n';
     }
 
-    const lastMessage = messages[messages.length - 1];
-    const report = await this.generateReport(lastMessage.content);
-    const formattedReport = this.formatReport(report);
-
-    return {
-      status: 'completed',
-      content: formattedReport
-    };
+    return output;
   }
 } 

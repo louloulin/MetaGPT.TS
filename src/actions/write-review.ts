@@ -69,221 +69,172 @@ export interface CodeReview {
  */
 export class WriteReview extends BaseAction {
   constructor(config: ActionConfig) {
-    super({
-      ...config,
-      name: config.name || 'WriteReview',
-      description: config.description || 'Generates comprehensive code reviews with classified comments, summaries, best practice suggestions, and code smell detection',
-    });
+    super(config);
   }
 
-  /**
-   * Parses code content or diffs to identify issues and generate a structured review
-   * @param code The code content or diff to review
-   * @returns A structured code review
-   */
-  private async analyzeCode(code: string): Promise<CodeReview> {
-    // Prompt template for code review
-    const prompt = `
-    Please review the following code and provide a comprehensive code review:
-
-    CODE TO REVIEW:
-    ${code}
-
-    Please structure your response as a JSON object with the following format:
-    {
-      "summary": "Brief summary of the overall code quality and main findings",
-      "generalFeedback": "Overall assessment of the code",
-      "comments": [
-        {
-          "severity": "One of CRITICAL, MAJOR, MINOR, NITPICK, or POSITIVE",
-          "category": "One of FUNCTIONALITY, PERFORMANCE, SECURITY, MAINTAINABILITY, READABILITY, TESTABILITY, ARCHITECTURE, STYLE, DOCUMENTATION, or OTHER",
-          "location": "File path and/or line numbers if applicable",
-          "comment": "The actual review comment",
-          "suggestion": "Suggested improvement if applicable"
-        }
-      ],
-      "bestPractices": ["List of best practices that should be applied"],
-      "codeSmells": [
-        {
-          "description": "Description of the code smell",
-          "location": "Where the smell is found",
-          "impact": "The potential impact of the smell",
-          "recommendation": "How to address the smell"
-        }
-      ]
-    }
-
-    Focus on providing actionable feedback and clear suggestions for improvement.
-    `;
-
-    // Get LLM response
-    const response = await this.ask(prompt);
-    
-    try {
-      // Parse the JSON response
-      const review = JSON.parse(response) as CodeReview;
-      return review;
-    } catch (error) {
-      logger.error('Failed to parse LLM response as JSON', error);
-      // Fallback with a basic review structure
-      return {
-        summary: 'Unable to generate structured review from LLM response',
-        generalFeedback: response.slice(0, 1000), // Use part of the response as general feedback
-        comments: [],
-        bestPractices: [],
-        codeSmells: []
-      };
-    }
-  }
-
-  /**
-   * Runs the WriteReview action
-   * @returns The review results
-   */
   public async run(): Promise<ActionOutput> {
     try {
-      logger.info(`[${this.name}] Running WriteReview action`);
-      
-      // Get the code content from the context
-      const code = this.getArg<string>('code');
-      
-      if (!code) {
-        const basicReview = {
-          summary: 'No code provided for review',
-          generalFeedback: 'Please provide code content for a detailed review',
-          comments: [],
-          bestPractices: ['Ensure code is provided for review'],
-          codeSmells: []
+      // Check if there are any messages
+      const messages = this.context?.memory?.get();
+      if (!messages || messages.length === 0) {
+        return {
+          status: 'failed',
+          content: 'No messages available for code review'
         };
-
-        return this.createOutput(
-          this.formatReview(basicReview),
-          'completed'
-        );
       }
 
-      // Generate the code review
-      const review = await this.analyzeCode(code);
+      // Get code content from messages
+      const codeContent = this.extractCodeContent(messages);
+      if (!codeContent) {
+        return {
+          status: 'completed',
+          content: this.formatReview({
+            summary: 'No code provided for review',
+            generalFeedback: 'Please provide code content for a detailed review',
+            comments: [],
+            bestPractices: ['Ensure code is provided for review'],
+            codeSmells: []
+          })
+        };
+      }
 
-      // Format the review for output
+      // Analyze code and generate review
+      const review = await this.analyzeCode(codeContent);
       const formattedReview = this.formatReview(review);
-      
-      return this.createOutput(
-        formattedReview,
-        'completed',
-        formattedReview
-      );
+
+      return {
+        status: 'completed',
+        content: formattedReview
+      };
     } catch (error) {
-      logger.error(`[${this.name}] Error in WriteReview action:`, error);
-      await this.handleException(error as Error);
-      
-      const errorReview = {
-        summary: 'Error occurred during code review',
-        generalFeedback: `Failed to complete code review: ${error}`,
+      logger.error('Error in WriteReview:', error);
+      return {
+        status: 'failed',
+        content: `Failed to generate code review: ${error}`
+      };
+    }
+  }
+
+  private extractCodeContent(messages: Message[]): string | null {
+    // Try to find code content in messages
+    for (const message of messages) {
+      if (message.content.includes('```')) {
+        const matches = message.content.match(/```[\w]*\n([\s\S]*?)```/);
+        if (matches && matches[1]) {
+          return matches[1].trim();
+        }
+      }
+    }
+    return null;
+  }
+
+  private async analyzeCode(code: string): Promise<CodeReview> {
+    if (!this.llm) {
+      throw new Error('LLM not initialized');
+    }
+
+    const prompt = `Analyze the following code and provide a detailed review:
+
+${code}
+
+Please include:
+1. Overall summary
+2. General feedback
+3. Specific comments with severity and category
+4. Best practices suggestions
+5. Code smells identification`;
+
+    try {
+      const response = await this.llm.chat(prompt);
+      const review = JSON.parse(response);
+
+      return {
+        summary: review.summary || 'Code review completed',
+        generalFeedback: review.generalFeedback || 'The code needs improvement in several areas',
+        comments: review.comments || [],
+        bestPractices: review.bestPractices || [],
+        codeSmells: review.codeSmells || []
+      };
+    } catch (error) {
+      logger.error('Error analyzing code:', error);
+      return {
+        summary: 'Error during code analysis',
+        generalFeedback: 'Unable to complete full code review',
         comments: [],
-        bestPractices: ['Ensure code is valid and can be parsed'],
+        bestPractices: ['Review could not be completed due to an error'],
         codeSmells: []
       };
-
-      return this.createOutput(
-        this.formatReview(errorReview),
-        'completed'
-      );
     }
   }
 
-  /**
-   * Formats a code review into a human-readable markdown format
-   * @param review The code review to format
-   * @returns Formatted markdown string
-   */
   private formatReview(review: CodeReview): string {
-    let markdown = '# Code Review\n\n';
-    
+    let output = '# Code Review\n\n';
+
     // Add summary
-    markdown += `## Summary\n\n${review.summary}\n\n`;
-    
+    output += '## Summary\n\n';
+    output += `${review.summary}\n\n`;
+
     // Add general feedback
-    markdown += `## General Feedback\n\n${review.generalFeedback}\n\n`;
-    
-    // Add critical issues first if any exist
-    const criticalComments = review.comments.filter(c => c.severity === ReviewSeverity.CRITICAL);
-    if (criticalComments.length > 0) {
-      markdown += '## Critical Issues\n\n';
-      for (const comment of criticalComments) {
-        markdown += `- ${comment.comment}\n`;
-        if (comment.suggestion) {
-          markdown += `  Suggestion: ${comment.suggestion}\n`;
-        }
-      }
-      markdown += '\n';
+    if (review.generalFeedback) {
+      output += '## General Feedback\n\n';
+      output += `${review.generalFeedback}\n\n`;
     }
-    
-    // Add best practices
-    if (review.bestPractices.length > 0) {
-      markdown += '## Best Practices\n\n';
-      for (const practice of review.bestPractices) {
-        markdown += `- ${practice}\n`;
-      }
-      markdown += '\n';
-    }
-    
-    // Add code smells
-    if (review.codeSmells.length > 0) {
-      markdown += '## Code Smells\n\n';
-      for (const smell of review.codeSmells) {
-        markdown += `- ${smell.description}\n`;
-        if (smell.location) {
-          markdown += `  Location: ${smell.location}\n`;
-        }
-        markdown += `  Impact: ${smell.impact}\n`;
-        markdown += `  Recommendation: ${smell.recommendation}\n\n`;
-      }
-    }
-    
-    // Add other comments grouped by severity
-    const otherComments = review.comments.filter(c => c.severity !== ReviewSeverity.CRITICAL);
-    if (otherComments.length > 0) {
-      const commentsBySeverity = this.groupCommentsBySeverity(otherComments);
+
+    // Group and add comments by severity
+    if (review.comments.length > 0) {
+      const groupedComments = this.groupCommentsBySeverity(review.comments);
       
       for (const severity of Object.values(ReviewSeverity)) {
-        if (severity === ReviewSeverity.CRITICAL) continue; // Already handled
-        
-        const comments = commentsBySeverity[severity] || [];
-        if (comments.length > 0) {
-          markdown += `## ${severity} Issues\n\n`;
-          for (const comment of comments) {
-            markdown += `- [${comment.category}] ${comment.comment}\n`;
+        const comments = groupedComments[severity];
+        if (comments && comments.length > 0) {
+          output += `## ${severity} Issues\n\n`;
+          comments.forEach(comment => {
+            output += `### ${comment.category}\n`;
             if (comment.location) {
-              markdown += `  At: ${comment.location}\n`;
+              output += `**Location**: ${comment.location}\n`;
             }
+            output += `**Comment**: ${comment.comment}\n`;
             if (comment.suggestion) {
-              markdown += `  Suggestion: ${comment.suggestion}\n`;
+              output += `**Suggestion**: ${comment.suggestion}\n`;
             }
-            markdown += '\n';
-          }
+            output += '\n';
+          });
         }
       }
     }
-    
-    return markdown;
+
+    // Add best practices
+    if (review.bestPractices.length > 0) {
+      output += '## Best Practices\n\n';
+      review.bestPractices.forEach(practice => {
+        output += `- ${practice}\n`;
+      });
+      output += '\n';
+    }
+
+    // Add code smells
+    if (review.codeSmells.length > 0) {
+      output += '## Code Smells\n\n';
+      review.codeSmells.forEach(smell => {
+        output += `### ${smell.description}\n`;
+        if (smell.location) {
+          output += `**Location**: ${smell.location}\n`;
+        }
+        output += `**Impact**: ${smell.impact}\n`;
+        output += `**Recommendation**: ${smell.recommendation}\n\n`;
+      });
+    }
+
+    return output;
   }
 
-  /**
-   * Groups review comments by severity
-   * @param comments The comments to group
-   * @returns Comments grouped by severity
-   */
   private groupCommentsBySeverity(comments: ReviewComment[]): Record<ReviewSeverity, ReviewComment[]> {
-    const result: Record<ReviewSeverity, ReviewComment[]> = {} as Record<ReviewSeverity, ReviewComment[]>;
+    const grouped: Record<ReviewSeverity, ReviewComment[]> = {} as Record<ReviewSeverity, ReviewComment[]>;
     
-    for (const comment of comments) {
-      if (!result[comment.severity]) {
-        result[comment.severity] = [];
-      }
-      result[comment.severity].push(comment);
+    for (const severity of Object.values(ReviewSeverity)) {
+      grouped[severity] = comments.filter(comment => comment.severity === severity);
     }
     
-    return result;
+    return grouped;
   }
 } 
