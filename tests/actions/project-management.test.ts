@@ -2,6 +2,12 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { ProjectManagement } from '../../src/actions/project-management';
 import { MockLLM } from '../mocks/mock-llm';
 import { z } from 'zod';
+import { ArrayMemory } from '../../src/types/memory';
+
+// Create a mock memory for testing
+const createMockMemory = () => {
+  return new ArrayMemory();
+};
 
 describe('ProjectManagement', () => {
   // Mock LLM that returns predefined responses for different prompts
@@ -30,7 +36,8 @@ describe('ProjectManagement', () => {
     const projectManagement = new ProjectManagement({
       name: 'ProjectManagement',
       description: 'Manages project tasks, dependencies, and resources',
-      llm: mockLLM
+      llm: mockLLM,
+      memory: createMockMemory()
     });
     
     expect(projectManagement).toBeInstanceOf(ProjectManagement);
@@ -43,7 +50,8 @@ describe('ProjectManagement', () => {
       name: 'ProjectManagement',
       description: 'Manages project tasks, dependencies, and resources',
       llm: mockLLM,
-      isRefined: true
+      isRefined: true,
+      memory: createMockMemory()
     });
     
     expect(projectManagement['isRefined']).toBe(true);
@@ -58,7 +66,8 @@ describe('ProjectManagement', () => {
       llm: mockLLM,
       args: {
         context: 'Create a simple Express web server'
-      }
+      },
+      memory: createMockMemory()
     });
     
     // Spy on the executeNode method
@@ -102,7 +111,8 @@ describe('ProjectManagement', () => {
       llm: errorMockLLM,
       args: {
         context: 'Create a simple Express web server'
-      }
+      },
+      memory: createMockMemory()
     });
     
     // We expect the action to complete despite errors in individual nodes
@@ -137,7 +147,8 @@ describe('ProjectManagement', () => {
       llm: invalidJsonMockLLM,
       args: {
         context: 'Create a simple Express web server'
-      }
+      },
+      memory: createMockMemory()
     });
     
     const result = await projectManagement.run();

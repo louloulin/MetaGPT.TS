@@ -5,6 +5,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Research, ResearchTopicType, SourceType, ReliabilityRating } from '../../src/actions/research';
 import type { ResearchResult, ResearchConfig } from '../../src/actions/research';
+import { ArrayMemory } from '../../src/types/memory';
+
+// Create a mock memory for testing
+const createMockMemory = () => {
+  return new ArrayMemory();
+};
 
 // Mock LLM provider
 const mockLLM = {
@@ -329,6 +335,7 @@ describe('Research', () => {
     research = new Research({
       name: 'Research',
       llm: mockLLM,
+      memory: createMockMemory()
     });
     
     // Setup the ask method from BaseAction
@@ -353,6 +360,7 @@ describe('Research', () => {
     const typescriptResearch = new Research({
       name: 'Research',
       llm: mockLLM,
+      memory: createMockMemory(),
       args: {
         query: 'What are the key features and benefits of TypeScript?',
         topic_type: ResearchTopicType.TECHNICAL

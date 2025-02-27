@@ -5,64 +5,38 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GenerateQuestions } from '../../src/actions/generate-questions';
 import { MockLLM } from '../mocks/mock-llm';
+import { UserMessage } from '../../src/types/message';
+import { ContextImpl, ContextFactory, GlobalContext } from '../../src/context/context';
+import { MemoryManagerImpl } from '../../src/memory/manager';
 
 describe('GenerateQuestions', () => {
   // Mock LLM that returns predefined responses for different prompts
   let mockLLM: MockLLM;
-  
-  beforeEach(() => {
-    // Create a new mock LLM for each test
+  let generateQuestions: GenerateQuestions;
+  let memory: MemoryManagerImpl;
+
+  beforeEach(async () => {
+    // Initialize context and memory
+    GlobalContext.reset();
+    memory = new MemoryManagerImpl();
+    await memory.init();
+    
+    // Store memory in global context
+    GlobalContext.getInstance().set('memory', memory);
+    
+    // Create the MockLLM as in the original test
     mockLLM = new MockLLM({
-      // Define responses for different types of nodes
       responses: {
-        'Content Analysis': 'The content discusses artificial intelligence ethics, focusing on transparency, bias, and accountability in AI systems.',
-        'Factual Questions': JSON.stringify([
-          {
-            question: 'What are the three main ethical concerns in AI discussed in the content?',
-            difficulty: 'basic',
-            answer: 'Transparency, bias, and accountability'
-          },
-          {
-            question: 'According to the content, why is algorithmic transparency important?',
-            difficulty: 'intermediate',
-            answer: 'It allows users to understand how AI systems make decisions, building trust and enabling oversight.'
-          }
-        ]),
-        'Conceptual Questions': JSON.stringify([
-          {
-            question: 'How does the concept of fairness in AI systems relate to existing societal biases?',
-            difficulty: 'advanced',
-            answer: 'Fairness in AI systems must account for existing societal biases that may be present in training data. If not addressed, AI systems can amplify and perpetuate these biases, leading to discriminatory outcomes.'
-          }
-        ]),
-        'Application Questions': JSON.stringify([
-          {
-            question: 'How would you implement transparency in a machine learning model used for loan approvals?',
-            difficulty: 'intermediate',
-            answer: 'I would use explainable AI techniques such as LIME or SHAP to provide explanations for individual decisions, create a model documentation sheet detailing the model\'s development and limitations, and provide a user-friendly interface that explains the key factors influencing each loan decision.'
-          }
-        ]),
-        'Critical Thinking Questions': JSON.stringify([
-          {
-            question: 'What are the potential conflicts between implementing full transparency in AI systems and protecting proprietary algorithms?',
-            difficulty: 'advanced',
-            answer: 'Full transparency may require disclosing proprietary algorithms, creating a tension between ethical requirements and business interests. Companies may be reluctant to reveal their intellectual property, while stakeholders demand transparency for accountability. Potential solutions include regulatory frameworks, third-party audits, or limited disclosure approaches.'
-          }
-        ]),
-        'Discussion Prompts': JSON.stringify([
-          'How might AI ethics principles vary across different cultural contexts, and what challenges does this pose for global AI systems?',
-          'Discuss the appropriate balance of responsibility between AI developers, users, and regulatory bodies for preventing algorithmic harm.'
-        ]),
-        'Question Organization': JSON.stringify({
-          categories: ['AI transparency', 'Algorithmic bias', 'Accountability frameworks', 'Ethical governance'],
-          progression: 'Begin with factual questions about basic AI ethics concepts, followed by conceptual questions exploring relationships between concepts, then application questions on implementing ethical AI, and finally critical questions examining tensions and trade-offs.',
-          recommendations: [
-            'Use factual questions for basic assessment of knowledge',
-            'Use conceptual and application questions for deeper understanding',
-            'Use critical thinking questions for advanced students or professionals'
-          ]
-        })
+        default: 'Mock generation',
+        'This is not valid JSON': 'This is not valid JSON',
+        'Error': 'Mock response',
       }
+    });
+
+    // Create GenerateQuestions instance
+    generateQuestions = new GenerateQuestions({
+      name: 'GenerateQuestions',
+      llm: mockLLM,
     });
   });
 

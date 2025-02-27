@@ -5,12 +5,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { WriteReview, ReviewSeverity, ReviewCategory } from '../../src/actions/write-review';
 import { UserMessage } from '../../src/types/message';
+import { ContextImpl, ContextFactory, GlobalContext } from '../../src/context/context';
+import { MemoryManagerImpl } from '../../src/memory/manager';
 
 describe('WriteReview', () => {
   let mockLLM: any;
   let writeReview: WriteReview;
+  let memory: MemoryManagerImpl;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    // Initialize context and memory
+    GlobalContext.reset();
+    memory = new MemoryManagerImpl();
+    await memory.init();
+    
+    // Store memory in global context
+    GlobalContext.getInstance().set('memory', memory);
+    
     // Create mock LLM
     mockLLM = {
       chat: vi.fn(),

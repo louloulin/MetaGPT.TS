@@ -6,6 +6,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SummarizeCode, SummaryLevel, ComponentType } from '../../src/actions/summarize-code';
 import type { CodeSummary } from '../../src/actions/summarize-code';
 import { UserMessage } from '../../src/types/message';
+import { ContextImpl, ContextFactory, GlobalContext } from '../../src/context/context';
+import { MemoryManagerImpl } from '../../src/memory/manager';
 
 // Sample code for testing
 const sampleCode = `
@@ -64,8 +66,17 @@ export default Calculator;
 describe('SummarizeCode', () => {
   let mockLLM: any;
   let summarizeCode: SummarizeCode;
+  let memory: MemoryManagerImpl;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    // Initialize context and memory
+    GlobalContext.reset();
+    memory = new MemoryManagerImpl();
+    await memory.init();
+    
+    // Store memory in global context
+    GlobalContext.getInstance().set('memory', memory);
+    
     // Create mock LLM
     mockLLM = {
       chat: vi.fn(),

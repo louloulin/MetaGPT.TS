@@ -2,23 +2,28 @@
  * Unit tests for RunCode action
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { RunCode, ProgrammingLanguage } from '../../src/actions/run-code';
 import type { ExecutionResult } from '../../src/actions/run-code';
 import * as childProcess from 'child_process';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { UserMessage } from '../../src/types/message';
+import { ArrayMemory } from '../../src/types/memory';
+import { ContextImpl, ContextFactory, GlobalContext } from '../../src/context/context';
+import { MemoryManagerImpl } from '../../src/memory/manager';
 
 // Mock external dependencies
 vi.mock('child_process', () => ({
   spawn: vi.fn(),
+  execSync: vi.fn().mockReturnValue(Buffer.from('Execution successful')),
 }));
 
 vi.mock('fs/promises', () => ({
   mkdir: vi.fn().mockResolvedValue(undefined),
   writeFile: vi.fn().mockResolvedValue(undefined),
   rm: vi.fn().mockResolvedValue(undefined),
+  unlink: vi.fn().mockResolvedValue(undefined)
 }));
 
 // Mock LLM provider
@@ -27,6 +32,11 @@ const mockLLM = {
   getName: () => 'MockLLM',
   getModel: () => 'test-model',
   generate: vi.fn(),
+};
+
+// Create a mock memory for testing
+const createMockMemory = () => {
+  return new ArrayMemory();
 };
 
 // Mock EventEmitter for child process
@@ -71,13 +81,31 @@ function createMockProcess() {
 }
 
 describe('RunCode', () => {
+  let mockLLM: any;
   let runCode: RunCode;
-  
-  beforeEach(() => {
-    // Reset mocks before each test
-    vi.resetAllMocks();
+  let memory: MemoryManagerImpl;
+
+  beforeEach(async () => {
+    // Initialize context and memory
+    GlobalContext.reset();
+    memory = new MemoryManagerImpl();
+    await memory.init();
     
-    // Create RunCode instance with mock LLM
+    // Store memory in global context
+    GlobalContext.getInstance().set('memory', memory);
+  
+    // Reset mocks
+    vi.clearAllMocks();
+
+    // Create mock LLM
+    mockLLM = {
+      chat: vi.fn(),
+      getName: () => 'MockLLM',
+      getModel: () => 'test-model',
+      generate: vi.fn(),
+    };
+
+    // Create RunCode instance
     runCode = new RunCode({
       name: 'RunCode',
       llm: mockLLM,
