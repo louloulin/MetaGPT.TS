@@ -13,6 +13,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { v4 as uuidv4 } from 'uuid';
+import { UserMessage } from '../types/message';
 
 /**
  * Supported programming languages
@@ -83,16 +84,30 @@ export class RunCode extends BaseAction {
     try {
       logger.info(`[${this.name}] Running RunCode action`);
       
-      // Get code and configuration from context
-      const code = this.getArg<string>('code');
-      const language = this.getArg<string>('language') || ProgrammingLanguage.JAVASCRIPT;
-      const timeout = this.getArg<number>('timeout') || DEFAULT_CONFIG.timeout;
-      const args = this.getArg<string[]>('args') || DEFAULT_CONFIG.args;
-      const env = this.getArg<Record<string, string>>('env') || DEFAULT_CONFIG.env;
-      const memoryLimit = this.getArg<number>('memoryLimit') || DEFAULT_CONFIG.memoryLimit;
-      const useContainer = this.getArg<boolean>('useContainer') || DEFAULT_CONFIG.useContainer;
-      const containerImage = this.getArg<string>('containerImage');
-      
+      // Get the last message from memory
+      const messages = this.context.memory.get();
+      if (!messages || messages.length === 0) {
+        return this.createOutput(
+          'No messages available',
+          'failed'
+        );
+      }
+
+      // Parse the last message to get code and configuration
+      const lastMessage = messages[messages.length - 1];
+      let code: string;
+      let language: string = ProgrammingLanguage.JAVASCRIPT;
+
+      try {
+        // Try to parse as JSON first
+        const parsed = JSON.parse(lastMessage.content);
+        code = parsed.code;
+        language = parsed.language || language;
+      } catch {
+        // If not JSON, treat the entire message as code
+        code = lastMessage.content;
+      }
+
       // Validate code input
       if (!code) {
         return this.createOutput(
@@ -105,18 +120,18 @@ export class RunCode extends BaseAction {
       const result = await this.executeCode({
         code,
         language,
-        timeout,
-        args,
-        env,
-        memoryLimit,
-        useContainer,
-        containerImage,
+        timeout: this.getArg<number>('timeout') || DEFAULT_CONFIG.timeout,
+        args: this.getArg<string[]>('args') || DEFAULT_CONFIG.args,
+        env: this.getArg<Record<string, string>>('env') || DEFAULT_CONFIG.env,
+        memoryLimit: this.getArg<number>('memoryLimit') || DEFAULT_CONFIG.memoryLimit,
+        useContainer: this.getArg<boolean>('useContainer') || DEFAULT_CONFIG.useContainer,
+        containerImage: this.getArg<string>('containerImage'),
       });
 
       // Generate output
       const formattedResult = this.formatResult(result);
       
-      // Determine if execution was successful
+      // Determine if execution was successful based on exit code and error presence
       const status = result.success ? 'completed' : 'failed';
       
       return this.createOutput(
@@ -161,7 +176,7 @@ export class RunCode extends BaseAction {
       return {
         ...result,
         executionTime,
-        success: result.exitCode === 0,
+        success: result.exitCode === 0 && !result.error,
       };
     } catch (error) {
       // Handle execution errors

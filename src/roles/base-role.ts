@@ -1,5 +1,12 @@
 import { 
-  createActor
+  createActor,
+  type ActorLogic,
+  type AnyActorRef,
+  type ActorOptions,
+  type StateMachine,
+  fromPromise,
+  setup,
+  assign
 } from 'xstate';
 import type { 
   ActorRefFrom,
@@ -24,28 +31,64 @@ import type { Message } from '../types/message';
 import type { Action, ActionOutput } from '../types/action';
 import { logger } from '../utils/logger';
 import { generateId } from '../utils/common';
+import { MemoryManagerImpl } from '../memory/manager';
 
 /**
  * Enhanced Role Base Class
  * Uses XState for event-based state management and behavior dispatch
  */
 export abstract class BaseRole implements Role {
-  name: string;
-  profile: string;
-  goal: string;
-  constraints: string;
-  actions: Action[] = [];
-  context: RoleContext;
-  desc: string = '';
+  readonly name: string;
+  readonly profile: string;
+  readonly goal: string;
+  readonly constraints: string;
+  readonly actions: Action[] = [];
+  readonly context: RoleContext;
+  readonly desc: string = '';
   states: string[] = [];
 
   // Message stream
   private messageSubject = new Subject<Message>();
-  private messageObservable: Observable<Message>;
+  private messageObservable: Observable<Message> = this.messageSubject.asObservable();
 
   // State machine
   private machine: RoleMachine;
   private actor!: ActorRefFrom<RoleMachine>;
+
+  /**
+   * Add a single action to the role
+   * @param action Action to add
+   */
+  public addAction(action: Action): void {
+    this.addActions([action]);
+  }
+
+  /**
+   * Add multiple actions to the role
+   * @param actions Actions to add
+   */
+  public addActions(actions: Action[]): void {
+    // Reset state
+    this.reset();
+    
+    // Initialize each action with context
+    const initializedActions = actions.map(action => {
+      action.context = {
+        name: action.name,
+        description: action.desc || '',
+        memory: this.context.memory,
+        workingMemory: this.context.workingMemory,
+        role: this
+      };
+      return action;
+    });
+    
+    // Add to actions list
+    this.actions.push(...initializedActions);
+    
+    // Update states list
+    this.states = this.actions.map(action => action.name);
+  }
 
   constructor(
     name: string,
@@ -59,37 +102,68 @@ export abstract class BaseRole implements Role {
     this.profile = profile;
     this.goal = goal;
     this.constraints = constraints;
-    this.actions = actions;
     this.desc = desc;
 
-    // Initialize context
+    // Initialize context with memory manager
     this.context = createDefaultRoleContext();
+    this.context.memory = new MemoryManagerImpl();
+    this.context.workingMemory = this.context.memory.working;
     
-    // Create state machine
+    // Initialize actions with context
+    this.actions = actions.map(action => {
+      action.context = {
+        name: action.name,
+        description: action.desc || '',
+        memory: this.context.memory,
+        workingMemory: this.context.workingMemory,
+        role: this
+      };
+      return action;
+    });
+    
+    // Create state machine with updated context
     this.machine = createRoleStateMachine(this.context);
 
     // Initialize state machine
     this.initStateMachine();
 
-    // Initialize message stream
+    // Update message stream subscription
     this.messageObservable = this.messageSubject.asObservable();
-    this.messageObservable.subscribe((message) => {
-      this.context.memory.add(message);
+    this.messageObservable.subscribe(async (message) => {
+      await this.addToMemory(message);
       logger.debug(`[${this.name}] Received message: ${message.content.substring(0, 50)}...`);
     });
+
+    // Initialize memory
+    this.initMemory().catch(error => {
+      logger.error(`[${this.name}] Failed to initialize memory:`, error);
+    });
+  }
+
+  /**
+   * Initialize memory system
+   */
+  private async initMemory(): Promise<void> {
+    if (this.context.memory) {
+      await this.context.memory.init();
+      await this.context.memory.working.init();
+      this.context.workingMemory = this.context.memory.working;
+    }
   }
 
   /**
    * Initialize state machine
    */
   private initStateMachine(): void {
-    // Create state machine actor
-    this.actor = createActor(this.machine, {
+    // Create actor with options
+    const options: ActorOptions<typeof this.machine> = {
       input: this.context,
-      systemId: `role-${this.name}`,
-      // Service configuration
-      services: this.createServices()
-    }).start();
+      id: `role-${this.name}`,
+      systemId: `role-${this.name}`
+    };
+
+    // Create and start actor
+    this.actor = createActor(this.machine, options).start();
 
     // Subscribe to state changes
     this.actor.subscribe((snapshot: SnapshotFrom<RoleMachine>) => {
@@ -98,44 +172,34 @@ export abstract class BaseRole implements Role {
       
       // Trigger state change hook
       this.onStateChanged(stateValue);
-    });
-  }
 
-  /**
-   * Create services
-   */
-  private createServices() {
-    return {
-      observeService: this.createService(async () => {
-        return await this.observe();
-      }),
-      
-      thinkService: this.createService(async () => {
-        return await this.think();
-      }),
-      
-      actService: this.createService(async () => {
-        return await this.act();
-      }),
-      
-      reactService: this.createService(async (input?: Message) => {
-        return await this.react(input);
-      })
-    };
-  }
-
-  /**
-   * Create a service function for the state machine
-   */
-  private createService<T, I = undefined>(fn: (input?: I) => Promise<T>) {
-    return async ({ input }: { input?: I }) => {
-      try {
-        return await fn(input);
-      } catch (error) {
-        logger.error(`[${this.name}] Service error:`, error);
-        throw error;
+      // Handle state-specific logic
+      if (stateValue === 'observing') {
+        this.observe().then(hasMessages => {
+          if (hasMessages) {
+            this.sendEvent({ type: 'THINK' });
+          } else {
+            this.sendEvent({ type: 'COMPLETE' });
+          }
+        });
+      } else if (stateValue === 'thinking') {
+        this.think().then(canAct => {
+          if (canAct) {
+            this.sendEvent({ type: 'ACT' });
+          } else {
+            this.sendEvent({ type: 'COMPLETE' });
+          }
+        });
+      } else if (stateValue === 'acting') {
+        this.act().then(() => {
+          this.sendEvent({ type: 'REACT' });
+        });
+      } else if (stateValue === 'reacting') {
+        this.react().then(() => {
+          this.sendEvent({ type: 'OBSERVE' });
+        });
       }
-    };
+    });
   }
 
   /**
@@ -154,7 +218,8 @@ export abstract class BaseRole implements Role {
     logger.debug(`[${this.name}] Observing...`);
     
     // Check if there are any messages in memory
-    const hasMessages = this.context.memory.getMessages().length > 0;
+    const workingMemories = await this.context.memory.working.search({});
+    const hasMessages = workingMemories.length > 0;
     
     return hasMessages;
   }
@@ -195,7 +260,7 @@ export abstract class BaseRole implements Role {
       const message = this.createMessage(result.content);
       
       // Add to working memory
-      this.addToWorkingMemory(message);
+      await this.addToWorkingMemory(message);
       
       return message;
     } catch (error) {
@@ -214,7 +279,7 @@ export abstract class BaseRole implements Role {
     
     // If message is provided, add it to memory
     if (message) {
-      this.addToMemory(message);
+      await this.addToMemory(message);
     }
     
     // Observe
@@ -241,7 +306,7 @@ export abstract class BaseRole implements Role {
     
     // If message is provided, add it to memory
     if (message) {
-      this.addToMemory(message);
+      await this.addToMemory(message);
     }
     
     // Start the role's state machine if not already started
@@ -317,19 +382,31 @@ export abstract class BaseRole implements Role {
   }
 
   /**
-   * Add a message to memory
-   * @param message Message to add
+   * Get messages from working memory
    */
-  protected addToMemory(message: Message): void {
-    this.context.memory.add(message);
+  protected async getMessages(): Promise<Message[]> {
+    if (!this.context.memory?.working) {
+      return [];
+    }
+    return this.context.memory.working.get();
   }
 
   /**
-   * Add a message to working memory
-   * @param message Message to add
+   * Add message to memory
    */
-  protected addToWorkingMemory(message: Message): void {
-    this.context.workingMemory.add(message);
+  protected async addToMemory(message: Message): Promise<void> {
+    if (this.context.memory?.working) {
+      await this.context.memory.working.add(message);
+    }
+  }
+
+  /**
+   * Add message to working memory
+   */
+  protected async addToWorkingMemory(message: Message): Promise<void> {
+    if (this.context.workingMemory) {
+      await this.context.workingMemory.add(message);
+    }
   }
 
   /**
@@ -381,16 +458,17 @@ export abstract class BaseRole implements Role {
   /**
    * Reset the role's state
    */
-  public reset(): void {
+  public async reset(): Promise<void> {
     // Reset context
     this.context.state = -1;
     this.context.todo = null;
-    this.context.memory.clear();
-    this.context.workingMemory.clear();
     
-    // Restart state machine
-    this.stop();
-    this.start();
+    // Reset memory systems
+    if (this.context.memory) {
+      await this.context.memory.init();
+      await this.context.memory.working.init();
+      this.context.workingMemory = this.context.memory.working;
+    }
   }
 
   /**

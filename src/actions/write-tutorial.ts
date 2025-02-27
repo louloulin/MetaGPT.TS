@@ -22,15 +22,20 @@ export enum TutorialFormat {
   REFERENCE_GUIDE = 'REFERENCE_GUIDE'
 }
 
+export interface Directory {
+  title: string;
+  directory: Array<{ [key: string]: string[] }>;
+}
+
 export interface TutorialSection {
   title: string;
   content: string;
   code_examples?: string[];
   key_points?: string[];
-  exercises?: {
+  exercises?: Array<{
     description: string;
     solution?: string;
-  }[];
+  }>;
 }
 
 export interface Tutorial {
@@ -66,13 +71,159 @@ export interface WriteTutorialArgs {
   focus_areas?: string[];
 }
 
+export class WriteDirectory extends BaseAction {
+  language: string;
+
+  constructor(config: { 
+    name?: string;
+    llm: any;
+    language?: string;
+    memory?: any;
+  }) {
+    const messages: any[] = [];
+    super({
+      name: config.name || 'WriteDirectory',
+      llm: config.llm,
+      memory: config.memory || {
+        getMessages: () => messages,
+        add: (msg: any) => { messages.push(msg); },
+        get: () => messages,
+        clear: () => { messages.length = 0; }
+      }
+    });
+    this.language = config.language || 'Chinese';
+  }
+
+  public async run(): Promise<ActionOutput> {
+    const topic = this.getArg<string>('topic');
+    if (!topic) {
+      return {
+        status: 'failed',
+        content: 'Topic argument is required'
+      };
+    }
+
+    logger.debug('[WriteDirectory] Generating directory for:', topic);
+
+    const systemPrompt = `You are an expert technical writer. Create a well-structured directory for a tutorial on the given topic.
+The directory should be:
+1. Clear and logical
+2. Well-organized with main sections and subsections
+3. Cover all important aspects of the topic
+
+Provide your directory in a structured JSON format matching the Directory interface.`;
+
+    try {
+      const directoryResponse = await this.llm.chat(systemPrompt + "\n\nTopic: " + topic);
+      const directory = JSON.parse(directoryResponse) as Directory;
+
+      return {
+        status: 'completed',
+        content: 'Directory structure generated successfully',
+        instructContent: directory
+      };
+    } catch (error) {
+      logger.error('[WriteDirectory] Error generating directory:', error);
+      return {
+        status: 'failed',
+        content: `Error generating directory: ${error}`
+      };
+    }
+  }
+}
+
+export class WriteContent extends BaseAction {
+  language: string;
+  directory: { [key: string]: string[] };
+
+  constructor(config: { 
+    name?: string;
+    llm: any;
+    language?: string;
+    directory: { [key: string]: string[] };
+    memory?: any;
+  }) {
+    const messages: any[] = [];
+    super({
+      name: config.name || 'WriteContent',
+      llm: config.llm,
+      memory: config.memory || {
+        getMessages: () => messages,
+        add: (msg: any) => { messages.push(msg); },
+        get: () => messages,
+        clear: () => { messages.length = 0; }
+      }
+    });
+    this.language = config.language || 'Chinese';
+    this.directory = config.directory;
+  }
+
+  public async run(): Promise<ActionOutput> {
+    const topic = this.getArg<string>('topic');
+    if (!topic) {
+      return {
+        status: 'failed',
+        content: 'Topic argument is required'
+      };
+    }
+
+    logger.debug('[WriteContent] Generating content for:', topic);
+
+    const systemPrompt = `You are an expert technical writer. Create detailed content for the given section of the tutorial.
+The content should be:
+1. Clear and comprehensive
+2. Include examples where appropriate
+3. Follow Markdown syntax
+4. Match the section structure provided
+
+Write the content in ${this.language} language.`;
+
+    try {
+      const sectionKey = Object.keys(this.directory)[0];
+      const subsections = this.directory[sectionKey];
+
+      const contentPrompt = `
+Topic: ${topic}
+Section: ${sectionKey}
+Subsections: ${JSON.stringify(subsections)}
+
+Please write detailed content for this section and its subsections.`;
+
+      const contentResponse = await this.llm.chat(systemPrompt + "\n\n" + contentPrompt);
+
+      return {
+        status: 'completed',
+        content: contentResponse
+      };
+    } catch (error) {
+      logger.error('[WriteContent] Error generating content:', error);
+      return {
+        status: 'failed',
+        content: `Error generating content: ${error}`
+      };
+    }
+  }
+}
+
 export class WriteTutorial extends BaseAction {
   protected args: WriteTutorialArgs;
 
-  constructor(config: any) {
+  constructor(config: { 
+    name: string;
+    llm: any;
+    args?: WriteTutorialArgs;
+    memory?: any;
+  }) {
+    const messages: any[] = [];
     super({
-      name: 'WriteTutorial',
-      ...config,
+      name: config.name,
+      llm: config.llm,
+      memory: config.memory || {
+        getMessages: () => messages,
+        add: (msg: any) => { messages.push(msg); },
+        get: () => messages,
+        clear: () => { messages.length = 0; }
+      }
     });
     this.args = config.args || {};
   }
@@ -95,7 +246,6 @@ Provide your tutorial in a structured JSON format matching the Tutorial interfac
       const tutorialResponse = await this.llm.chat(systemPrompt + "\n\nTutorial request: " + JSON.stringify(config));
       const tutorial = JSON.parse(tutorialResponse);
 
-      // Validate and ensure all required fields are present
       return {
         title: tutorial.title || config.topic,
         description: tutorial.description || '',
@@ -106,7 +256,7 @@ Provide your tutorial in a structured JSON format matching the Tutorial interfac
         estimated_time: tutorial.estimated_time || '30 minutes',
         sections: tutorial.sections || [],
         summary: tutorial.summary || '',
-        further_reading: tutorial.further_reading,
+        further_reading: tutorial.further_reading || [],
         keywords: tutorial.keywords || []
       };
     } catch (error) {
@@ -215,4 +365,4 @@ ${tutorial.keywords.join(', ')}`;
       content: formattedTutorial
     };
   }
-} 
+}

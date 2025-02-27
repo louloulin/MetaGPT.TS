@@ -59,7 +59,7 @@ export interface RequirementsDocument {
 }
 
 export interface WriteRequirementsArgs {
-  project_name?: string;
+  project_name: string;
   scope_focus?: string[];
   stakeholders?: string[];
   include_technical?: boolean;
@@ -71,65 +71,98 @@ export class WriteRequirements extends BaseAction {
   protected args: WriteRequirementsArgs;
 
   constructor(config: any) {
-    super({
-      name: 'WriteRequirements',
-      ...config,
-    });
-    this.args = config.args || {};
+    super(config);
+    this.args = {
+      project_name: config.args?.project_name || 'Untitled Project',
+      scope_focus: config.args?.scope_focus || [],
+      stakeholders: config.args?.stakeholders || [],
+      include_technical: config.args?.include_technical ?? true,
+      include_security: config.args?.include_security ?? true,
+      include_performance: config.args?.include_performance ?? true
+    };
   }
 
   private generateRequirementId(type: RequirementType, index: number): string {
     const prefix = type.substring(0, 3).toUpperCase();
-    return `${prefix}-${String(index).padStart(3, '0')}`;
+    return `${prefix}-${String(index + 1).padStart(3, '0')}`;
+  }
+
+  public async run(): Promise<ActionOutput> {
+    try {
+      // Check if there are any messages
+      const messages = this.context?.memory?.get();
+      if (!messages || messages.length === 0) {
+        return {
+          status: 'failed',
+          content: 'No messages available for requirements generation'
+        };
+      }
+
+      // Generate requirements based on messages
+      const prompt = this.preparePrompt(messages);
+      let doc: RequirementsDocument;
+      
+      try {
+        doc = await this.generateRequirements(prompt);
+      } catch (error) {
+        logger.error('Error generating requirements:', error);
+        doc = this.createFallbackDocument(prompt);
+      }
+
+      // Format the document
+      const formattedDoc = this.formatRequirementsDocument(doc);
+
+      return {
+        status: 'completed',
+        content: formattedDoc
+      };
+    } catch (error) {
+      logger.error('Error in WriteRequirements:', error);
+      return {
+        status: 'failed',
+        content: `Failed to generate requirements: ${error}`
+      };
+    }
+  }
+
+  private preparePrompt(messages: any[]): string {
+    const messageContent = messages.map(m => m.content).join('\n');
+    return `Generate requirements document for the following project information:\n\n${messageContent}`;
   }
 
   private async generateRequirements(prompt: string): Promise<RequirementsDocument> {
-    logger.debug('[WriteRequirements] Generating requirements for:', prompt);
-
-    const systemPrompt = `You are a requirements engineering expert. Create a comprehensive requirements document for the given project.
-The document should include:
-1. Executive summary
-2. Project scope
-3. Detailed requirements (functional and non-functional)
-4. Acceptance criteria
-5. Dependencies and constraints
-6. Risk assessment
-
-Provide your analysis in a structured JSON format matching the RequirementsDocument interface.`;
-
-    try {
-      const response = await this.llm.chat(systemPrompt + "\n\nProject description: " + prompt);
-      const document = JSON.parse(response);
-
-      // Ensure requirements have proper IDs
-      document.requirements = document.requirements.map((req: Requirement, index: number) => ({
-        ...req,
-        id: this.generateRequirementId(req.type, index + 1)
-      }));
-
-      return {
-        project_name: document.project_name || this.args.project_name || 'Untitled Project',
-        version: document.version || '1.0.0',
-        last_updated: document.last_updated || new Date().toISOString(),
-        executive_summary: document.executive_summary || '',
-        scope: document.scope || { included: [], excluded: [] },
-        assumptions: document.assumptions || [],
-        constraints: document.constraints || [],
-        requirements: document.requirements || [],
-        risks: document.risks || []
-      };
-    } catch (error) {
-      logger.error('[WriteRequirements] Error generating requirements:', error);
-      return this.createFallbackDocument(prompt);
+    if (!this.llm) {
+      throw new Error('LLM not initialized');
     }
+
+    const response = await this.llm.chat(prompt);
+    const doc = JSON.parse(response);
+
+    return {
+      project_name: doc.project_name || this.args.project_name || 'Untitled Project',
+      version: doc.version || '1.0.0',
+      last_updated: doc.last_updated || new Date().toISOString(),
+      executive_summary: doc.executive_summary || 'Basic project description',
+      scope: {
+        included: doc.scope?.included || [],
+        excluded: doc.scope?.excluded || []
+      },
+      assumptions: doc.assumptions || [],
+      constraints: doc.constraints || [],
+      requirements: (doc.requirements || []).map((req: any, index: number) => ({
+        ...req,
+        id: req.id || this.generateRequirementId(req.type || RequirementType.FUNCTIONAL, index)
+      })),
+      risks: doc.risks || []
+    };
   }
 
   private createFallbackDocument(prompt: string): RequirementsDocument {
     return {
-      project_name: this.args.project_name || 'Untitled Project',
+      project_name: this.args.project_name,
       version: '1.0.0',
       last_updated: new Date().toISOString(),
-      executive_summary: `Basic requirements document for: ${prompt}`,
+      executive_summary: 'Basic requirements document generated due to an error',
       scope: {
         included: ['Basic functionality'],
         excluded: ['Advanced features']
@@ -138,7 +171,7 @@ Provide your analysis in a structured JSON format matching the RequirementsDocum
       constraints: ['Time and resource limitations'],
       requirements: [
         {
-          id: 'FUN-001',
+          id: this.generateRequirementId(RequirementType.FUNCTIONAL, 0),
           title: 'Basic Functionality',
           description: 'Implement core functionality as described in prompt',
           type: RequirementType.FUNCTIONAL,
@@ -157,66 +190,82 @@ Provide your analysis in a structured JSON format matching the RequirementsDocum
   }
 
   private formatRequirementsDocument(doc: RequirementsDocument): string {
-    return `# ${doc.project_name} Requirements Document
-Version: ${doc.version}
-Last Updated: ${doc.last_updated}
+    let output = `# ${doc.project_name} Requirements Document\n`;
+    output += `Version: ${doc.version}\n`;
+    output += `Last Updated: ${doc.last_updated}\n\n`;
 
-## Executive Summary
-${doc.executive_summary}
+    output += `## Executive Summary\n${doc.executive_summary}\n\n`;
 
-## Project Scope
+    output += '## Project Scope\n\n';
+    output += '### Included\n';
+    doc.scope.included.forEach(item => {
+      output += `- ${item}\n`;
+    });
+    output += '\n### Excluded\n';
+    doc.scope.excluded.forEach(item => {
+      output += `- ${item}\n`;
+    });
+    output += '\n';
 
-### Included
-${doc.scope.included.map(item => `- ${item}`).join('\n')}
+    output += '## Assumptions\n';
+    doc.assumptions.forEach(assumption => {
+      output += `- ${assumption}\n`;
+    });
+    output += '\n';
 
-### Excluded
-${doc.scope.excluded.map(item => `- ${item}`).join('\n')}
+    output += '## Constraints\n';
+    doc.constraints.forEach(constraint => {
+      output += `- ${constraint}\n`;
+    });
+    output += '\n';
 
-## Assumptions
-${doc.assumptions.map(assumption => `- ${assumption}`).join('\n')}
+    output += '## Requirements\n\n';
+    doc.requirements.forEach(req => {
+      output += `### ${req.id}: ${req.title}\n`;
+      output += `**Type:** ${req.type}\n`;
+      output += `**Priority:** ${req.priority}\n\n`;
+      output += `${req.description}\n\n`;
+      
+      output += '**Acceptance Criteria:**\n';
+      req.acceptance_criteria.forEach(criteria => {
+        output += `- ${criteria}\n`;
+      });
+      output += '\n';
 
-## Constraints
-${doc.constraints.map(constraint => `- ${constraint}`).join('\n')}
+      if (req.stakeholders && req.stakeholders.length > 0) {
+        output += '**Stakeholders:**\n';
+        req.stakeholders.forEach(stakeholder => {
+          output += `- ${stakeholder}\n`;
+        });
+        output += '\n';
+      }
 
-## Requirements
+      if (req.dependencies && req.dependencies.length > 0) {
+        output += '**Dependencies:**\n';
+        req.dependencies.forEach(dep => {
+          output += `- ${dep}\n`;
+        });
+        output += '\n';
+      }
 
-${doc.requirements.map(req => `### ${req.id}: ${req.title}
-**Type:** ${req.type}
-**Priority:** ${req.priority}
+      if (req.estimated_effort) {
+        output += `**Estimated Effort:** ${req.estimated_effort}\n\n`;
+      }
 
-${req.description}
+      if (req.notes) {
+        output += `**Notes:** ${req.notes}\n\n`;
+      }
+    });
 
-**Acceptance Criteria:**
-${req.acceptance_criteria.map(criteria => `- ${criteria}`).join('\n')}
-
-${req.dependencies ? `**Dependencies:**\n${req.dependencies.map(dep => `- ${dep}`).join('\n')}\n` : ''}
-${req.stakeholders ? `**Stakeholders:**\n${req.stakeholders.map(stakeholder => `- ${stakeholder}`).join('\n')}\n` : ''}
-${req.estimated_effort ? `**Estimated Effort:** ${req.estimated_effort}\n` : ''}
-${req.notes ? `**Notes:** ${req.notes}` : ''}`).join('\n\n')}
-
-## Risks and Mitigations
-
-${doc.risks.map(risk => `### Risk: ${risk.description}
-**Impact:** ${risk.impact}
-**Mitigation:** ${risk.mitigation}`).join('\n\n')}`;
-  }
-
-  public async run(): Promise<ActionOutput> {
-    const messages = this.context.memory.getMessages();
-    if (messages.length === 0) {
-      return {
-        status: 'failed',
-        content: 'No messages available for requirements generation'
-      };
+    if (doc.risks.length > 0) {
+      output += '## Risks and Mitigations\n\n';
+      doc.risks.forEach(risk => {
+        output += `### Risk: ${risk.description}\n`;
+        output += `**Impact:** ${risk.impact}\n`;
+        output += `**Mitigation:** ${risk.mitigation}\n\n`;
+      });
     }
 
-    const lastMessage = messages[messages.length - 1];
-    const document = await this.generateRequirements(lastMessage.content);
-    const formattedDocument = this.formatRequirementsDocument(document);
-
-    return {
-      status: 'completed',
-      content: formattedDocument
-    };
+    return output;
   }
 } 

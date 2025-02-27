@@ -10,6 +10,8 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
+import { LLMProvider } from '../llm/base';
+import { Memory } from '../memory/base';
 
 /**
  * Context interface defining the core functionality for the context management system.
@@ -29,6 +31,16 @@ export interface Context {
    * Data stored in this context
    */
   readonly data: Record<string, any>;
+  
+  /**
+   * LLM provider for this context
+   */
+  llm?: LLMProvider;
+  
+  /**
+   * Memory system for this context
+   */
+  memory?: Memory;
   
   /**
    * Get a value from the context
@@ -118,6 +130,10 @@ export class ContextImpl implements Context {
   readonly parent?: Context;
   readonly data: Record<string, any>;
   
+  // Add typed llm and memory properties
+  llm?: LLMProvider;
+  memory?: Memory;
+  
   /**
    * Create a new context
    * @param id Optional ID for the context (generated if not provided)
@@ -128,6 +144,21 @@ export class ContextImpl implements Context {
     this.id = id || uuidv4();
     this.data = ContextDataSchema.parse(data);
     this.parent = parent;
+    
+    // Initialize llm and memory from data if provided
+    if (data.llm) {
+      this.llm = data.llm;
+      delete this.data.llm;
+    } else if (parent?.llm) {
+      this.llm = parent.llm;
+    }
+    
+    if (data.memory) {
+      this.memory = data.memory;
+      delete this.data.memory;
+    } else if (parent?.memory) {
+      this.memory = parent.memory;
+    }
   }
   
   /**

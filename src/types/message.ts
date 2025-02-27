@@ -12,6 +12,17 @@ export const MESSAGE_ROUTE = {
 } as const;
 
 /**
+ * Message metadata schema
+ */
+export const MessageMetadataSchema = z.object({
+  importance: z.number().min(0).max(1).default(0.5),
+  tags: z.array(z.string()).default([]),
+  context: z.record(z.unknown()).default({}),
+}).partial();
+
+export type MessageMetadata = z.infer<typeof MessageMetadataSchema>;
+
+/**
  * Simple message schema without routing information
  */
 export const SimpleMessageSchema = z.object({
@@ -30,6 +41,7 @@ export const MessageSchema = z.object({
   causedBy: z.string().default(MESSAGE_ROUTE.CAUSE_BY),
   sentFrom: z.string().default(MESSAGE_ROUTE.FROM),
   timestamp: z.string().default(() => new Date().toISOString()),
+  metadata: MessageMetadataSchema.optional(),
   sendTo: z.union([
     z.string(),
     z.array(z.string()),
@@ -154,9 +166,11 @@ export class UserMessage implements Message {
   public sentFrom: string = MESSAGE_ROUTE.FROM;
   public sendTo: Set<string> = new Set([MESSAGE_ROUTE.TO_ALL]);
   public timestamp: string = new Date().toISOString();
+  public metadata?: MessageMetadata;
 
-  constructor(content: string) {
+  constructor(content: string, metadata?: MessageMetadata) {
     this.content = content;
+    this.metadata = metadata;
   }
 }
 
@@ -172,9 +186,11 @@ export class SystemMessage implements Message {
   public sentFrom: string = MESSAGE_ROUTE.FROM;
   public sendTo: Set<string> = new Set([MESSAGE_ROUTE.TO_ALL]);
   public timestamp: string = new Date().toISOString();
+  public metadata?: MessageMetadata;
 
-  constructor(content: string) {
+  constructor(content: string, metadata?: MessageMetadata) {
     this.content = content;
+    this.metadata = metadata;
   }
 }
 
@@ -190,8 +206,10 @@ export class AIMessage implements Message {
   public sentFrom: string = MESSAGE_ROUTE.FROM;
   public sendTo: Set<string> = new Set([MESSAGE_ROUTE.TO_ALL]);
   public timestamp: string = new Date().toISOString();
+  public metadata?: MessageMetadata;
 
-  constructor(content: string) {
+  constructor(content: string, metadata?: MessageMetadata) {
     this.content = content;
+    this.metadata = metadata;
   }
 } 

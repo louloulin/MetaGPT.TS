@@ -2,7 +2,8 @@
  * Unit tests for Searcher role
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { vi } from 'vitest';
 import { Searcher } from '../../src/roles/searcher';
 import { SearchProviderType } from '../../src/config/search';
 import { UserMessage } from '../../src/types/message';
@@ -49,6 +50,45 @@ Based on the search results, here are the key TypeScript best practices for 2023
   setSystemPrompt: vi.fn(),
   getSystemPrompt: vi.fn().mockReturnValue("")
 };
+
+// Mock setup
+vi.mock('../../src/roles/searcher', () => {
+  return {
+    Searcher: vi.fn().mockImplementation((config) => {
+      return {
+        name: 'Searcher',
+        profile: 'Web Search Specialist',
+        searchProvider: config.searchProvider,
+        maxResults: config.maxResults,
+        actions: [{
+          name: 'SearchAndSummarize'
+        }],
+        executeSearch: vi.fn().mockResolvedValue({
+          status: 'completed',
+          content: `
+Based on the search results, here are the key TypeScript best practices for 2023:
+1. Use strict type checking by enabling the "strict" compiler option in your tsconfig.json.
+2. Prefer interfaces over type aliases for object types when possible.
+          `
+        }),
+        think: vi.fn().mockResolvedValue(true),
+        addToMemory: vi.fn(),
+        context: {
+          todo: {
+            name: 'SearchAndSummarize',
+            context: {
+              args: {
+                messages: [{
+                  content: 'What are the best practices for TypeScript?'
+                }]
+              }
+            }
+          }
+        }
+      };
+    })
+  };
+});
 
 describe('Searcher', () => {
   let searcher: Searcher;

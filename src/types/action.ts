@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import type { Message } from './message';
 import type { LLMProvider } from './llm';
+import type { MemoryManager } from './memory';
+import type { Role } from './role';
 
 export const ActionStatusSchema = z.enum([
   'created',
@@ -27,6 +29,7 @@ export const ActionContextSchema = z.object({
   memory: z.any(),
   workingMemory: z.any(),
   llm: z.any(),
+  role: z.any().optional(),
 });
 
 export type ActionContext = z.infer<typeof ActionContextSchema>;
@@ -43,12 +46,11 @@ export interface ActionConfig {
 
 export interface Action {
   name: string;
+  desc?: string;
   context: ActionContext;
   llm: LLMProvider;
   prefix: string;
-  desc: string;
-  
   run(): Promise<ActionOutput>;
-  handleException(error: Error): Promise<void>;
-  setPrefix(prefix: string): Action;
+  handleException?(error: Error): Promise<ActionOutput>;
+  setPrefix?(prefix: string): void;
 } 

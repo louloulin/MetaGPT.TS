@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { RunCode, ProgrammingLanguage } from '../../src/actions/run-code';
 import type { ExecutionResult } from '../../src/actions/run-code';
+import type { Context } from '../../src/context/context';
 import * as childProcess from 'child_process';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -81,9 +82,9 @@ function createMockProcess() {
 }
 
 describe('RunCode', () => {
-  let mockLLM: any;
   let runCode: RunCode;
   let memory: MemoryManagerImpl;
+  let context: ContextImpl;
 
   beforeEach(async () => {
     // Initialize context and memory
@@ -91,25 +92,33 @@ describe('RunCode', () => {
     memory = new MemoryManagerImpl();
     await memory.init();
     
-    // Store memory in global context
-    GlobalContext.getInstance().set('memory', memory);
+    // Create context with memory and LLM
+    const contextData = {
+      memory: memory,
+      llm: mockLLM
+    };
+    context = new ContextImpl(undefined, contextData);
+    
+    // Store context in global context
+    GlobalContext.getInstance().set('context', context);
   
     // Reset mocks
     vi.clearAllMocks();
 
-    // Create mock LLM
-    mockLLM = {
-      chat: vi.fn(),
-      getName: () => 'MockLLM',
-      getModel: () => 'test-model',
-      generate: vi.fn(),
-    };
-
     // Create RunCode instance
     runCode = new RunCode({
       name: 'RunCode',
+      description: 'Executes code in a controlled environment',
       llm: mockLLM,
+      memory: memory
     });
+    (runCode as any).context = context;
+  });
+
+  afterEach(() => {
+    // Clean up
+    vi.clearAllMocks();
+    GlobalContext.reset();
   });
   
   it('should create a RunCode instance', () => {
@@ -137,7 +146,7 @@ describe('RunCode', () => {
     (runCode as any).executeCode = vi.fn().mockResolvedValue(mockResult);
 
     // Add a message to process
-    runCode.context.memory.add(new UserMessage('Run this code: console.log("Hello, World!");'));
+    memory.add(new UserMessage('Run this code: console.log("Hello, World!");'));
 
     // Run code execution
     const result = await runCode.run();
@@ -165,13 +174,13 @@ describe('RunCode', () => {
     (runCode as any).executeCode = vi.fn().mockResolvedValue(mockResult);
 
     // Add a message to process
-    runCode.context.memory.add(new UserMessage('Run this code: console.log(x);'));
+    memory.add(new UserMessage('Run this code: console.log(x);'));
 
     // Run code execution
     const result = await runCode.run();
 
     // Verify error handling
-    expect(result.status).toBe('completed');
+    expect(result.status).toBe('failed');
     expect(result.content).toContain('Error');
     expect(result.content).toContain('ReferenceError');
     expect(result.content).toContain('Exit Code: 1');
@@ -249,8 +258,11 @@ describe('RunCode', () => {
       // Mock the executeCode method
       (runCode as any).executeCode = vi.fn().mockResolvedValue(mockResult);
 
-      // Add a message to process
-      runCode.context.memory.add(new UserMessage(`Run this ${testCase.language} code: ${testCase.code}`));
+      // Add a message to process with code and language
+      memory.add(new UserMessage(JSON.stringify({
+        code: testCase.code,
+        language: testCase.language
+      })));
 
       // Run code execution
       const result = await runCode.run();
@@ -260,9 +272,13 @@ describe('RunCode', () => {
       expect(result.content).toContain(testCase.output);
       expect((runCode as any).executeCode).toHaveBeenCalledWith(
         expect.objectContaining({
-          language: testCase.language
+          language: testCase.language,
+          code: testCase.code
         })
       );
+
+      // Clear memory for next test
+      memory.clear();
     }
   });
   
@@ -284,7 +300,7 @@ describe('RunCode', () => {
     (runCode as any).executeCode = vi.fn().mockResolvedValue(mockResult);
 
     // Add a message to process
-    runCode.context.memory.add(new UserMessage('Run this code'));
+    memory.add(new UserMessage('Run this code'));
 
     // Run code execution
     await runCode.run();

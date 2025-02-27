@@ -123,45 +123,26 @@ export function createRoleStateMachine(context: RoleContext) {
         on: { OBSERVE: 'observing' }
       },
       observing: {
-        invoke: {
-          src: 'observeService',
-          onDone: [
-            {
-              target: 'thinking',
-              guard: (_, event: any) => Boolean(event?.output)
-            },
-            { target: 'idle' }
-          ],
-          onError: 'idle'
+        on: { 
+          THINK: 'thinking',
+          COMPLETE: 'idle'
         }
       },
       thinking: {
-        invoke: {
-          src: 'thinkService',
-          onDone: [
-            {
-              target: 'acting',
-              guard: (_, event: any) => Boolean(event?.output)
-            },
-            { target: 'idle' }
-          ],
-          onError: 'idle'
+        on: { 
+          ACT: 'acting',
+          COMPLETE: 'idle'
         }
       },
       acting: {
-        invoke: {
-          src: 'actService',
-          onDone: 'reacting',
-          onError: 'idle'
+        on: { 
+          REACT: 'reacting',
+          COMPLETE: 'idle'
         }
       },
       reacting: {
-        invoke: {
-          src: 'reactService',
-          onDone: 'observing',
-          onError: 'idle'
-        },
-        on: {
+        on: { 
+          OBSERVE: 'observing',
           COMPLETE: 'idle'
         }
       }
