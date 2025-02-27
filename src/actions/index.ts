@@ -15,6 +15,7 @@ export { WriteTutorial } from './write-tutorial';
 // Analysis actions
 export { AnalyzeTask } from './analyze-task';
 export { DesignArchitecture } from './design-architecture';
+export { DesignAPI } from './design-api';
 export { EvaluateArchitecture } from './evaluate-architecture';
 export { MapComponents } from './map-components';
 export { WriteTest } from './write-test';
@@ -29,4 +30,13 @@ export { Research } from './research';
 export { SearchAndSummarize } from './search-and-summarize';
 
 // Document actions
-export { DocumentGeneration } from './document-generation'; 
+export { DocumentGeneration } from './document-generation';
+export { WriteReport } from './write-report';
+export { WriteRequirements } from './write-requirements';
+export { GenerateQuestions } from './generate-questions';
+export { PrepareDocuments } from './prepare-documents';
+
+// Project management actions
+export { ProjectManagement } from './project-management';
+export { FixBug } from './fix-bug';
+export { ExecuteTask } from './execute-task'; 
