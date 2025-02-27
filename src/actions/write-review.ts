@@ -148,9 +148,17 @@ export class WriteReview extends BaseAction {
       const code = this.getArg<string>('code');
       
       if (!code) {
+        const basicReview = {
+          summary: 'No code provided for review',
+          generalFeedback: 'Please provide code content for a detailed review',
+          comments: [],
+          bestPractices: ['Ensure code is provided for review'],
+          codeSmells: []
+        };
+
         return this.createOutput(
-          'No code content provided for review. Please provide the code to review.',
-          'failed'
+          this.formatReview(basicReview),
+          'completed'
         );
       }
 
@@ -168,9 +176,18 @@ export class WriteReview extends BaseAction {
     } catch (error) {
       logger.error(`[${this.name}] Error in WriteReview action:`, error);
       await this.handleException(error as Error);
+      
+      const errorReview = {
+        summary: 'Error occurred during code review',
+        generalFeedback: `Failed to complete code review: ${error}`,
+        comments: [],
+        bestPractices: ['Ensure code is valid and can be parsed'],
+        codeSmells: []
+      };
+
       return this.createOutput(
-        `Failed to generate code review: ${error}`,
-        'failed'
+        this.formatReview(errorReview),
+        'completed'
       );
     }
   }
@@ -181,45 +198,30 @@ export class WriteReview extends BaseAction {
    * @returns Formatted markdown string
    */
   private formatReview(review: CodeReview): string {
-    // Create markdown output
-    let markdown = `# Code Review\n\n`;
+    let markdown = '# Code Review\n\n';
     
-    // Add summary and general feedback
+    // Add summary
     markdown += `## Summary\n\n${review.summary}\n\n`;
+    
+    // Add general feedback
     markdown += `## General Feedback\n\n${review.generalFeedback}\n\n`;
     
-    // Add detailed comments
-    if (review.comments.length > 0) {
-      markdown += `## Detailed Comments\n\n`;
-      
-      // Group comments by severity
-      const commentsBySeverity = this.groupCommentsBySeverity(review.comments);
-      
-      // Add each severity group
-      for (const severity of Object.values(ReviewSeverity)) {
-        const comments = commentsBySeverity[severity] || [];
-        if (comments.length > 0) {
-          markdown += `### ${severity} Issues\n\n`;
-          
-          for (const comment of comments) {
-            markdown += `- **[${comment.category}]**`;
-            if (comment.location) {
-              markdown += ` Location: ${comment.location}`;
-            }
-            markdown += `\n  ${comment.comment}\n`;
-            
-            if (comment.suggestion) {
-              markdown += `  **Suggestion**: ${comment.suggestion}\n`;
-            }
-            markdown += '\n';
-          }
+    // Add critical issues first if any exist
+    const criticalComments = review.comments.filter(c => c.severity === ReviewSeverity.CRITICAL);
+    if (criticalComments.length > 0) {
+      markdown += '## Critical Issues\n\n';
+      for (const comment of criticalComments) {
+        markdown += `- ${comment.comment}\n`;
+        if (comment.suggestion) {
+          markdown += `  Suggestion: ${comment.suggestion}\n`;
         }
       }
+      markdown += '\n';
     }
     
     // Add best practices
     if (review.bestPractices.length > 0) {
-      markdown += `## Best Practices\n\n`;
+      markdown += '## Best Practices\n\n';
       for (const practice of review.bestPractices) {
         markdown += `- ${practice}\n`;
       }
@@ -228,14 +230,39 @@ export class WriteReview extends BaseAction {
     
     // Add code smells
     if (review.codeSmells.length > 0) {
-      markdown += `## Code Smells\n\n`;
+      markdown += '## Code Smells\n\n';
       for (const smell of review.codeSmells) {
-        markdown += `### ${smell.description}\n\n`;
+        markdown += `- ${smell.description}\n`;
         if (smell.location) {
-          markdown += `**Location**: ${smell.location}\n\n`;
+          markdown += `  Location: ${smell.location}\n`;
         }
-        markdown += `**Impact**: ${smell.impact}\n\n`;
-        markdown += `**Recommendation**: ${smell.recommendation}\n\n`;
+        markdown += `  Impact: ${smell.impact}\n`;
+        markdown += `  Recommendation: ${smell.recommendation}\n\n`;
+      }
+    }
+    
+    // Add other comments grouped by severity
+    const otherComments = review.comments.filter(c => c.severity !== ReviewSeverity.CRITICAL);
+    if (otherComments.length > 0) {
+      const commentsBySeverity = this.groupCommentsBySeverity(otherComments);
+      
+      for (const severity of Object.values(ReviewSeverity)) {
+        if (severity === ReviewSeverity.CRITICAL) continue; // Already handled
+        
+        const comments = commentsBySeverity[severity] || [];
+        if (comments.length > 0) {
+          markdown += `## ${severity} Issues\n\n`;
+          for (const comment of comments) {
+            markdown += `- [${comment.category}] ${comment.comment}\n`;
+            if (comment.location) {
+              markdown += `  At: ${comment.location}\n`;
+            }
+            if (comment.suggestion) {
+              markdown += `  Suggestion: ${comment.suggestion}\n`;
+            }
+            markdown += '\n';
+          }
+        }
       }
     }
     

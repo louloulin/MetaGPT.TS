@@ -7,7 +7,7 @@
 
 import { Sales } from './sales';
 import type { SalesConfig } from './sales';
-import type { Message } from '../types/message';
+import type { Message, MessageMetadata } from '../types/message';
 import type { Action } from '../types/action';
 import { logger } from '../utils/logger';
 import { BaseAction } from '../actions/base-action';
@@ -73,6 +73,27 @@ export class CustomerService extends Sales {
       desc: config.desc || 'Customer service representative responsible for support and issue resolution.'
     });
 
+    // Initialize memory system with appropriate configuration
+    this.context.memory = this.context.memory || {
+      get: () => [],
+      getMessages: () => [],
+      add: async (message: Message) => {
+        await super.addToMemory(message);
+      },
+      remove: async (id: string) => {
+        // Implementation for removing messages
+        const messages = this.context.memory.get();
+        const index = messages.findIndex((msg: Message) => msg.id === id);
+        if (index !== -1) {
+          messages.splice(index, 1);
+        }
+      },
+      clear: async () => {
+        // Implementation for clearing messages
+        this.context.memory.messages = [];
+      }
+    };
+
     // Initialize FAQ database
     this.faqDatabase = config.faqDatabase;
     
@@ -88,55 +109,112 @@ export class CustomerService extends Sales {
   }
 
   /**
+   * Override addToMemory to handle customer service specific memory management
+   */
+  protected async addToMemory(message: Message): Promise<void> {
+    try {
+      // Add importance metadata for customer service messages
+      const enhancedMessage: Message = {
+        ...message,
+        metadata: {
+          ...(message.metadata || {}),
+          importance: this.calculateMessageImportance(message),
+          tags: [...(message.metadata?.tags || []), 'customer_service'],
+          context: {
+            ...(message.metadata?.context || {}),
+            service_type: 'customer_support'
+          }
+        }
+      };
+
+      await super.addToMemory(enhancedMessage);
+    } catch (error) {
+      logger.error(`[${this.name}] Error adding message to memory: ${error}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Calculate message importance based on customer service criteria
+   */
+  private calculateMessageImportance(message: Message): number {
+    const content = message.content.toLowerCase();
+    
+    // Higher importance for urgent issues
+    if (content.includes('urgent') || content.includes('emergency')) {
+      return 0.9;
+    }
+    
+    // Higher importance for specific issues
+    if (content.includes('problem') || content.includes('issue') || content.includes('error')) {
+      return 0.7;
+    }
+    
+    // Default importance
+    return 0.5;
+  }
+
+  /**
    * Handle incoming messages specific to CustomerService
    * @param message Incoming message
    * @returns Response message
    */
   protected async handleMessage(message: Message): Promise<Message> {
-    logger.info(`[${this.name}] Handling customer service message: ${message.content.substring(0, 50)}...`);
-    
-    // Get search and summarize action
-    const searchAction = this.actions.find(action => action.name === 'SearchAndSummarize');
-    
-    if (!searchAction) {
-      return this.createMessage(
-        'Sorry, I cannot process your request at the moment due to missing search capabilities.'
-      );
-    }
-    
-    // Set the messages for context with customer service principles
-    const messages = this.context.memory.getMessages();
-    const enhancedMessages = [...messages, message];
-    
-    // Configure search action with appropriate context
-    // We need to use a different approach to set arguments since setArg is protected
-    const combinedContext = [
-      CUSTOMER_SERVICE_PRINCIPLES,
-      this.faqDatabase || '',
-      this.customerProductKnowledgeBase || ''
-    ].filter(Boolean).join('\n\n');
-    
-    // Create a custom system message incorporating customer service principles
-    const systemMessage = `You are a customer service representative. ${CUSTOMER_SERVICE_PRINCIPLES}`;
-    
-    // Set search parameters using action's run method which will retrieve arguments
-    const actionWithArgs = {
-      ...searchAction,
-      context: {
-        ...searchAction.context,
-        args: {
-          ...searchAction.context.args,
-          messages: enhancedMessages,
-          context: combinedContext,
-          system_messages: [systemMessage]
-        }
+    try {
+      logger.info(`[${this.name}] Handling customer service message: ${message.content.substring(0, 50)}...`);
+      
+      // Add message to memory before processing
+      await this.addToMemory(message);
+      
+      // Get search and summarize action
+      const searchAction = this.actions.find(action => action.name === 'SearchAndSummarize');
+      
+      if (!searchAction) {
+        return this.createMessage(
+          'Sorry, I cannot process your request at the moment due to missing search capabilities.'
+        );
       }
-    };
-    
-    // Execute the search action with customer service context
-    const result = await actionWithArgs.run();
-    
-    return this.createMessage(result.content);
+      
+      // Get messages for context with customer service principles
+      const messages = await this.context.memory.getMessages();
+      const enhancedMessages = [...messages, message];
+      
+      // Configure search action with appropriate context
+      const combinedContext = [
+        CUSTOMER_SERVICE_PRINCIPLES,
+        this.faqDatabase || '',
+        this.customerProductKnowledgeBase || ''
+      ].filter(Boolean).join('\n\n');
+      
+      // Create a custom system message incorporating customer service principles
+      const systemMessage = `You are a customer service representative. ${CUSTOMER_SERVICE_PRINCIPLES}`;
+      
+      // Set search parameters using action's run method
+      const actionWithArgs = {
+        ...searchAction,
+        context: {
+          ...searchAction.context,
+          args: {
+            ...searchAction.context.args,
+            messages: enhancedMessages,
+            context: combinedContext,
+            system_messages: [systemMessage]
+          }
+        }
+      };
+      
+      // Execute the search action with customer service context
+      const result = await actionWithArgs.run();
+      
+      // Create and store response message
+      const response = this.createMessage(result.content);
+      await this.addToMemory(response);
+      
+      return response;
+    } catch (error) {
+      logger.error(`[${this.name}] Error handling message: ${error}`);
+      throw error;
+    }
   }
 
   /**

@@ -74,10 +74,22 @@ export interface WriteTutorialArgs {
 export class WriteDirectory extends BaseAction {
   language: string;
 
-  constructor(config: { llm: any; language?: string }) {
+  constructor(config: { 
+    name?: string;
+    llm: any;
+    language?: string;
+    memory?: any;
+  }) {
+    const messages: any[] = [];
     super({
-      name: 'WriteDirectory',
-      ...config,
+      name: config.name || 'WriteDirectory',
+      llm: config.llm,
+      memory: config.memory || {
+        getMessages: () => messages,
+        add: (msg: any) => { messages.push(msg); },
+        get: () => messages,
+        clear: () => { messages.length = 0; }
+      }
     });
     this.language = config.language || 'Chinese';
   }
@@ -124,10 +136,23 @@ export class WriteContent extends BaseAction {
   language: string;
   directory: { [key: string]: string[] };
 
-  constructor(config: { llm: any; language?: string; directory: { [key: string]: string[] } }) {
+  constructor(config: { 
+    name?: string;
+    llm: any;
+    language?: string;
+    directory: { [key: string]: string[] };
+    memory?: any;
+  }) {
+    const messages: any[] = [];
     super({
-      name: 'WriteContent',
-      ...config,
+      name: config.name || 'WriteContent',
+      llm: config.llm,
+      memory: config.memory || {
+        getMessages: () => messages,
+        add: (msg: any) => { messages.push(msg); },
+        get: () => messages,
+        clear: () => { messages.length = 0; }
+      }
     });
     this.language = config.language || 'Chinese';
     this.directory = config.directory;
@@ -183,10 +208,22 @@ Please write detailed content for this section and its subsections.`;
 export class WriteTutorial extends BaseAction {
   protected args: WriteTutorialArgs;
 
-  constructor(config: any) {
+  constructor(config: { 
+    name: string;
+    llm: any;
+    args?: WriteTutorialArgs;
+    memory?: any;
+  }) {
+    const messages: any[] = [];
     super({
-      name: 'WriteTutorial',
-      ...config,
+      name: config.name,
+      llm: config.llm,
+      memory: config.memory || {
+        getMessages: () => messages,
+        add: (msg: any) => { messages.push(msg); },
+        get: () => messages,
+        clear: () => { messages.length = 0; }
+      }
     });
     this.args = config.args || {};
   }

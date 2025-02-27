@@ -204,29 +204,17 @@ export class ProjectManagement extends BaseAction {
   private async executeNode(node: ActionNode, context: string): Promise<any> {
     logger.debug(`Executing node: ${node.key}`);
     
-    // Here we would typically use an LLM to generate the content for each node
-    // based on the instruction and expected type
-    
     const prompt = `${node.instruction}\n\nContext:\n${context}\n\nProvide your response in the expected format. For reference, here's an example: ${JSON.stringify(node.example)}`;
     const content = await this.llm.generate(prompt);
     
     try {
-      // Parse the result based on the expected type
-      // This is a simplified version; in a real implementation, 
-      // we would need more robust parsing based on the expectedType
-      if (Array.isArray(node.example)) {
-        if (Array.isArray(node.example[0])) {
-          // It's a 2D array
-          return JSON.parse(content);
-        } else {
-          // It's a 1D array
-          return JSON.parse(content);
-        }
-      } else if (typeof node.example === 'string') {
-        return content;
-      } else {
+      // If the content is already a string representation of what we want, parse it
+      if (typeof content === 'string' && (content.startsWith('[') || content.startsWith('{'))) {
         return JSON.parse(content);
       }
+      
+      // If it's already parsed (like in the case of MockLLM), return it directly
+      return content;
     } catch (error) {
       logger.error(`Error parsing node ${node.key} result: ${error}`);
       return content; // Return as-is if parsing fails

@@ -3,6 +3,7 @@ import type { Action, ActionContext, ActionOutput, ActionConfig } from '../types
 import type { LLMProvider } from '../types/llm';
 import { ActionContextSchema, ActionOutputSchema } from '../types/action';
 import { logger } from '../utils/logger';
+import { ArrayMemory } from '../types/memory';
 
 /**
  * Base Action Class
@@ -32,15 +33,23 @@ export abstract class BaseAction implements Action {
     this.prefix = validConfig.prefix || '';
     this.desc = validConfig.description || '';
 
-    // Build context
+    // Build context with default memory implementation if not provided
+    const memory = validConfig.memory || new ArrayMemory();
+    const workingMemory = validConfig.workingMemory || memory;
+
     this.context = ActionContextSchema.parse({
       name: validConfig.name,
       description: validConfig.description || '',
       args: validConfig.args || {},
       llm: validConfig.llm,
-      memory: validConfig.memory,
-      workingMemory: validConfig.workingMemory,
+      memory,
+      workingMemory,
     });
+
+    // Ensure args is initialized
+    if (!this.context.args) {
+      this.context.args = {};
+    }
   }
 
   /**
@@ -87,18 +96,14 @@ export abstract class BaseAction implements Action {
   }
 
   /**
-   * Get action argument
-   * @param key Argument key
-   * @returns Argument value
+   * Get an argument value by key
    */
   protected getArg<T>(key: string): T | undefined {
     return this.context.args?.[key] as T;
   }
 
   /**
-   * Set action argument
-   * @param key Argument key
-   * @param value Argument value
+   * Set an argument value
    */
   protected setArg<T>(key: string, value: T): void {
     if (!this.context.args) {

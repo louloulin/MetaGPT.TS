@@ -86,6 +86,57 @@ export class Assistant extends BaseRole {
   }
 
   /**
+   * Clean up old messages if memory limit is exceeded
+   */
+  private async cleanupMemory(): Promise<void> {
+    try {
+      const messages = this.context.memory.get();
+      if (messages.length > this.memoryLimit) {
+        // Sort messages by importance and timestamp
+        const sortedMessages = [...messages].sort((a, b) => {
+          const importanceDiff = (b.metadata?.importance || 0.5) - (a.metadata?.importance || 0.5);
+          if (importanceDiff !== 0) return importanceDiff;
+          return (b.timestamp || 0) - (a.timestamp || 0);
+        });
+
+        // Keep only the most important messages within the limit
+        const toKeep = sortedMessages.slice(0, this.memoryLimit);
+        const toRemove = sortedMessages.slice(this.memoryLimit);
+        
+        // Remove excess messages
+        for (const msg of toRemove) {
+          await this.context.memory.remove(msg.id);
+        }
+
+        logger.info(`[Assistant] Cleaned up memory to stay within limit of ${this.memoryLimit} messages`);
+      }
+    } catch (error) {
+      logger.error(`[Assistant] Error during memory cleanup: ${error}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Override addToMemory to enforce memory limit
+   */
+  protected async addToMemory(message: Message): Promise<void> {
+    try {
+      // Check if adding this message would exceed the limit
+      const currentMessages = this.context.memory.get();
+      if (currentMessages.length >= this.memoryLimit) {
+        // Clean up before adding new message
+        await this.cleanupMemory();
+      }
+
+      // Add the message
+      await super.addToMemory(message);
+    } catch (error) {
+      logger.error(`[Assistant] Error adding message to memory: ${error}`);
+      throw error;
+    }
+  }
+
+  /**
    * Think about the next action based on the current context and message
    */
   public async think(): Promise<boolean> {
@@ -164,19 +215,6 @@ export class Assistant extends BaseRole {
   public setMemoryLimit(limit: number): void {
     this.memoryLimit = limit;
     logger.info(`[Assistant] Memory limit updated to: ${limit}`);
-  }
-
-  /**
-   * Clean up old messages if memory limit is exceeded
-   */
-  private cleanupMemory(): void {
-    const messages = this.context.memory.get();
-    if (messages.length > this.memoryLimit) {
-      // Keep the most recent messages within the limit
-      const toKeep = messages.slice(-this.memoryLimit);
-      this.context.memory.clear();
-      toKeep.forEach((msg: Message) => this.context.memory.add(msg));
-      logger.info(`[Assistant] Cleaned up memory to stay within limit of ${this.memoryLimit} messages`);
-    }
+    this.cleanupMemory();
   }
 } 

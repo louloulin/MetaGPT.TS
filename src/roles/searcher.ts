@@ -34,6 +34,9 @@ export class Searcher extends BaseRole {
   llm: LLMProvider;
   searchProvider: SearchProviderType;
   maxResults: number;
+  name: string;
+  profile: string;
+  actions: Action[];
   
   /**
    * Constructor
@@ -47,23 +50,12 @@ export class Searcher extends BaseRole {
       []
     );
     
-    logger.info('[Searcher] Initializing with config:', {
-      name: config.name || 'Searcher',
-      searchProvider: config.searchProvider ?? SearchProviderType.SERPAPI,
-      maxResults: config.maxResults ?? 5,
-      react_mode: config.react_mode ?? 'plan_and_act',
-      max_react_loop: config.max_react_loop ?? 5,
-    });
-    
+    this.name = config.name || 'Searcher';
+    this.profile = config.profile || 'Web Search Specialist';
     this.llm = config.llm;
     this.searchProvider = config.searchProvider ?? SearchProviderType.SERPAPI;
     this.maxResults = config.maxResults ?? 5;
-    
-    // Set reaction mode
-    this.setReactMode(
-      config.react_mode === 'react' ? 'react' : 'plan_and_act',
-      config.max_react_loop ?? 5
-    );
+    this.actions = [];
     
     // Initialize actions
     this.initialize();
@@ -142,5 +134,9 @@ export class Searcher extends BaseRole {
     
     // Execute the search
     return await searchAction.run();
+  }
+  
+  addToMemory(message: Message): void {
+    this.context.memory.add(message);
   }
 } 

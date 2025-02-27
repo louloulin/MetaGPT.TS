@@ -150,18 +150,18 @@ Provide your report in a structured JSON format matching the Report interface.`;
   }
 
   private formatReport(report: Report): string {
-    let content = `# ${report.title}
+    let content = `# ${report.title}\n\n`;
 
-**Type:** ${report.type}
-**Format:** ${report.format}
-**Date:** ${report.date}
-**Author:** ${report.author}
-${report.recipients ? `**Recipients:** ${report.recipients.join(', ')}` : ''}
+    // Add type and format
+    content += `Type: ${report.type}\n`;
+    content += `Format: ${report.format}\n`;
+    
+    // Add date and author
+    content += `Date: ${report.date}\n`;
+    content += `Author: ${report.author}\n\n`;
 
-## Executive Summary
-${report.executive_summary}
-
-`;
+    // Add executive summary
+    content += `## Executive Summary\n${report.executive_summary}\n\n`;
 
     // Add sections
     report.sections.forEach(section => {
@@ -170,44 +170,38 @@ ${report.executive_summary}
 
     // Add metrics if present
     if (report.metrics && report.metrics.length > 0) {
-      content += '\n## Key Metrics\n\n';
+      content += '## Key Metrics\n\n';
       report.metrics.forEach(metric => {
-        content += `### ${metric.name}
-- Value: ${metric.value}${metric.target ? ` (Target: ${metric.target})` : ''}
-- Status: ${metric.status}\n\n`;
+        content += `${metric.name}: ${metric.value}${metric.target ? ` (Target: ${metric.target})` : ''} - ${metric.status}\n`;
       });
+      content += '\n';
     }
 
     // Add conclusions
     if (report.conclusions.length > 0) {
-      content += '\n## Conclusions\n';
+      content += '## Conclusions\n';
       report.conclusions.forEach(conclusion => {
         content += `- ${conclusion}\n`;
       });
+      content += '\n';
     }
 
     // Add recommendations
     if (report.recommendations.length > 0) {
-      content += '\n## Recommendations\n';
+      content += '## Recommendations\n';
       report.recommendations.forEach(recommendation => {
         content += `- ${recommendation}\n`;
       });
+      content += '\n';
     }
 
     // Add next steps if present
     if (report.next_steps && report.next_steps.length > 0) {
-      content += '\n## Next Steps\n';
+      content += '## Next Steps\n';
       report.next_steps.forEach(step => {
         content += `- ${step}\n`;
       });
-    }
-
-    // Add appendices if present
-    if (report.appendices && report.appendices.length > 0) {
-      content += '\n## Appendices\n\n';
-      report.appendices.forEach(appendix => {
-        content += `### ${appendix.title}\n${appendix.content}\n\n`;
-      });
+      content += '\n';
     }
 
     return content;
@@ -215,45 +209,49 @@ ${report.executive_summary}
 
   private formatSection(section: ReportSection, level: number): string {
     const heading = '#'.repeat(level);
-    let content = `\n${heading} ${section.title}\n\n${section.content}\n`;
+    let content = `${heading} ${section.title}\n\n${section.content}\n\n`;
 
     if (section.key_points && section.key_points.length > 0) {
-      content += '\n**Key Points:**\n';
+      content += '### Key Points\n';
       section.key_points.forEach(point => {
         content += `- ${point}\n`;
       });
+      content += '\n';
     }
 
     if (section.data_points && section.data_points.length > 0) {
-      content += '\n**Data Points:**\n';
+      content += '### Data Points\n';
       section.data_points.forEach(point => {
         content += `- ${point.label}: ${point.value}${point.unit ? ` ${point.unit}` : ''}`;
         if (point.trend) {
-          content += ` (Trend: ${point.trend}`;
+          content += ` (${point.trend}`;
           if (point.change_percentage !== undefined) {
-            content += `, Change: ${point.change_percentage}%`;
+            content += ` ${point.change_percentage}%`;
           }
           content += ')';
         }
         content += '\n';
       });
+      content += '\n';
     }
 
     if (section.recommendations && section.recommendations.length > 0) {
-      content += '\n**Recommendations:**\n';
+      content += '### Recommendations\n';
       section.recommendations.forEach(rec => {
         content += `- ${rec}\n`;
       });
+      content += '\n';
     }
 
     if (section.references && section.references.length > 0) {
-      content += '\n**References:**\n';
+      content += '### References\n';
       section.references.forEach(ref => {
         content += `- ${ref}\n`;
       });
+      content += '\n';
     }
 
-    if (section.subsections && section.subsections.length > 0) {
+    if (section.subsections) {
       section.subsections.forEach(subsection => {
         content += this.formatSection(subsection, level + 1);
       });
@@ -265,9 +263,27 @@ ${report.executive_summary}
   public async run(): Promise<ActionOutput> {
     const messages = this.context.memory.getMessages();
     if (messages.length === 0) {
+      const basicReport = {
+        title: 'Empty Report',
+        type: this.args.report_type || ReportType.SUMMARY,
+        format: this.args.format || ReportFormat.DETAILED,
+        executive_summary: 'No messages available for report generation',
+        date: new Date().toISOString(),
+        author: this.args.author || 'System Generated',
+        sections: [
+          {
+            title: 'Status',
+            content: 'No content available for report generation',
+            key_points: ['No messages in memory']
+          }
+        ],
+        conclusions: ['Report generation skipped due to lack of input'],
+        recommendations: ['Please provide messages for report generation']
+      };
+
       return {
-        status: 'failed',
-        content: 'No messages available for report generation'
+        status: 'completed',
+        content: this.formatReport(basicReport)
       };
     }
 

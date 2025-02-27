@@ -26,6 +26,10 @@ export class ArrayMemory {
     return [...this.messages];
   }
 
+  getMessages(): Message[] {
+    return this.get();
+  }
+
   getByActions(actions: Set<string>): Message[] {
     return this.messages.filter(msg => actions.has(msg.causedBy));
   }

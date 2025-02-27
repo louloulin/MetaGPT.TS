@@ -176,9 +176,19 @@ export class SummarizeCode extends BaseAction {
       
       // Validate code input
       if (!code) {
+        const basicSummary = {
+          overview: {
+            title: 'No Code Provided',
+            description: 'No code was provided for summarization.',
+            language: 'Unknown',
+            primary_purpose: 'N/A',
+            line_count: 0,
+            estimated_complexity: 'LOW'
+          }
+        };
         return this.createOutput(
-          'No code provided for summarization. Please provide the code to summarize.',
-          'failed'
+          this.formatSummary(basicSummary as CodeSummary, summaryOptions),
+          'completed'
         );
       }
 
@@ -196,9 +206,18 @@ export class SummarizeCode extends BaseAction {
     } catch (error) {
       logger.error(`[${this.name}] Error in SummarizeCode action:`, error);
       await this.handleException(error as Error);
+      
+      // Create a basic fallback summary
+      const fallbackSummary = this.createFallbackSummary(
+        this.getArg<string>('code') || '',
+        this.getArg<string>('language') || 'Unknown',
+        this.getArg<string>('file_path')
+      );
+      
       return this.createOutput(
-        `Failed to summarize code: ${error}`,
-        'failed'
+        this.formatSummary(fallbackSummary, this.getArg<SummarizeCodeOptions>('options')),
+        'completed',
+        fallbackSummary
       );
     }
   }
@@ -217,23 +236,130 @@ export class SummarizeCode extends BaseAction {
     language?: string,
     options?: SummarizeCodeOptions
   ): Promise<CodeSummary> {
-    // Detect language if not provided
-    const detectedLanguage = language || this.detectLanguage(code, filePath);
-    
-    // Construct prompt for code analysis
-    const prompt = this.constructAnalysisPrompt(code, detectedLanguage, filePath, options);
-    
-    // Get LLM response
-    const response = await this.ask(prompt);
-    
     try {
-      // Parse the JSON response
-      const summary = JSON.parse(response) as CodeSummary;
-      return summary;
+      // Detect language if not provided
+      const detectedLanguage = language || await this.detectLanguage(code, filePath);
+      
+      // Construct prompt for code analysis
+      const prompt = this.constructAnalysisPrompt(code, detectedLanguage, filePath, options);
+      
+      // Get LLM response
+      const response = await this.ask(prompt);
+      
+      try {
+        // Try to parse the JSON response
+        let summary: Partial<CodeSummary>;
+        try {
+          summary = JSON.parse(response) as Partial<CodeSummary>;
+        } catch (parseError) {
+          logger.error(`[${this.name}] Failed to parse JSON response:`, parseError);
+          logger.debug(`[${this.name}] Raw response:`, response);
+          
+          // Try to extract JSON from the response
+          const jsonMatch = response.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            try {
+              summary = JSON.parse(jsonMatch[0]) as Partial<CodeSummary>;
+            } catch (secondError) {
+              logger.error(`[${this.name}] Failed to extract and parse JSON:`, secondError);
+              throw new Error('Failed to parse code analysis response');
+            }
+          } else {
+            throw new Error('No valid JSON found in response');
+          }
+        }
+        
+        // Validate and ensure all required fields are present
+        if (!summary || typeof summary !== 'object') {
+          throw new Error('Invalid summary format');
+        }
+
+        // Create overview with defaults for missing fields
+        const overview = {
+          title: summary.overview?.title || 'Unknown Code',
+          description: summary.overview?.description || 'No description available',
+          language: summary.overview?.language || detectedLanguage,
+          primary_purpose: summary.overview?.primary_purpose || 'Unable to automatically determine the primary purpose',
+          line_count: summary.overview?.line_count || code.split('\n').length,
+          estimated_complexity: summary.overview?.estimated_complexity || 'LOW'
+        };
+
+        // Validate and normalize components
+        const components = Array.isArray(summary.components) ? summary.components.map(comp => ({
+          name: comp.name || 'Unknown Component',
+          type: comp.type || ComponentType.OTHER,
+          description: comp.description || 'No description available',
+          location: comp.location,
+          dependencies: Array.isArray(comp.dependencies) ? comp.dependencies : undefined,
+          complexity: typeof comp.complexity === 'number' ? comp.complexity : undefined,
+          lineCount: typeof comp.lineCount === 'number' ? comp.lineCount : undefined
+        })) : [];
+
+        // Validate and normalize functional areas
+        const functional_areas = Array.isArray(summary.functional_areas) ? summary.functional_areas.map(area => ({
+          name: area.name || 'Unknown Area',
+          description: area.description || 'No description available',
+          components: Array.isArray(area.components) ? area.components : []
+        })) : [];
+
+        // Validate and normalize design patterns
+        const design_patterns = Array.isArray(summary.design_patterns) ? summary.design_patterns.map(pattern => ({
+          name: pattern.name || 'Unknown Pattern',
+          confidence: typeof pattern.confidence === 'number' ? pattern.confidence : 0,
+          description: pattern.description || 'No description available',
+          location: pattern.location,
+          benefits: Array.isArray(pattern.benefits) ? pattern.benefits : []
+        })) : [];
+
+        // Validate and normalize relationships
+        const relationships = {
+          imports: Array.isArray(summary.relationships?.imports) ? summary.relationships.imports : [],
+          exports: Array.isArray(summary.relationships?.exports) ? summary.relationships.exports : [],
+          internal_dependencies: Array.isArray(summary.relationships?.internal_dependencies) ? 
+            summary.relationships.internal_dependencies.map(dep => ({
+              from: dep.from || '',
+              to: dep.to || '',
+              type: dep.type || 'USES'
+            })) : []
+        };
+
+        // Validate and normalize improvements
+        const improvements = Array.isArray(summary.improvements) ? summary.improvements.map(imp => ({
+          description: imp.description || 'Unknown improvement',
+          rationale: imp.rationale || 'No rationale provided',
+          priority: imp.priority || 'LOW',
+          implementation_difficulty: imp.implementation_difficulty || 'MODERATE',
+          code_example: imp.code_example
+        })) : [];
+
+        // Validate and normalize documentation
+        const documentation = {
+          quality: summary.documentation?.quality || 'POOR',
+          coverage_percentage: typeof summary.documentation?.coverage_percentage === 'number' ? 
+            summary.documentation.coverage_percentage : 0,
+          missing_documentation: Array.isArray(summary.documentation?.missing_documentation) ? 
+            summary.documentation.missing_documentation : ['All components'],
+          suggestions: Array.isArray(summary.documentation?.suggestions) ? 
+            summary.documentation.suggestions : ['Add JSDoc or similar documentation to functions and classes']
+        };
+
+        // Return complete and validated summary
+        return {
+          overview,
+          components,
+          functional_areas,
+          design_patterns,
+          relationships,
+          improvements,
+          documentation
+        };
+      } catch (parseError) {
+        logger.error(`[${this.name}] Error parsing code analysis response:`, parseError);
+        throw new Error('Failed to parse code analysis response');
+      }
     } catch (error) {
-      logger.error('Failed to parse LLM response as JSON', error);
-      // Create fallback summary if parsing fails
-      return this.createFallbackSummary(code, detectedLanguage, filePath);
+      logger.error(`[${this.name}] Error in analyzeCode:`, error);
+      throw error;
     }
   }
 
@@ -392,60 +518,122 @@ export class SummarizeCode extends BaseAction {
    * @param filePath Optional file path
    * @returns Detected language
    */
-  private detectLanguage(code: string, filePath?: string): string {
-    // Try to detect from file extension
-    if (filePath) {
-      const extension = filePath.split('.').pop()?.toLowerCase();
-      
-      if (extension) {
-        const extensionMap: Record<string, string> = {
-          'js': 'JavaScript',
-          'jsx': 'JavaScript (React)',
-          'ts': 'TypeScript',
-          'tsx': 'TypeScript (React)',
-          'py': 'Python',
-          'java': 'Java',
-          'c': 'C',
-          'cpp': 'C++',
-          'cs': 'C#',
-          'go': 'Go',
-          'rb': 'Ruby',
-          'php': 'PHP',
-          'swift': 'Swift',
-          'kt': 'Kotlin',
-          'rs': 'Rust',
-          'scala': 'Scala',
-          'sh': 'Shell',
-          'html': 'HTML',
-          'css': 'CSS',
-          'sql': 'SQL'
-        };
-        
-        if (extensionMap[extension]) {
-          return extensionMap[extension];
+  private async detectLanguage(code: string, filePath?: string): Promise<string> {
+    try {
+      // Try to detect from file extension first
+      if (filePath) {
+        const ext = filePath.split('.').pop()?.toLowerCase();
+        if (ext) {
+          const extensionMap: { [key: string]: string } = {
+            'ts': 'TypeScript',
+            'tsx': 'TypeScript',
+            'js': 'JavaScript',
+            'jsx': 'JavaScript',
+            'py': 'Python',
+            'java': 'Java',
+            'rb': 'Ruby',
+            'php': 'PHP',
+            'go': 'Go',
+            'rs': 'Rust',
+            'cs': 'C#',
+            'cpp': 'C++',
+            'cc': 'C++',
+            'cxx': 'C++',
+            'c': 'C',
+            'swift': 'Swift',
+            'kt': 'Kotlin',
+            'scala': 'Scala',
+            'r': 'R',
+            'dart': 'Dart',
+            'sh': 'Shell',
+            'bash': 'Shell',
+            'sql': 'SQL'
+          };
+          
+          if (ext in extensionMap) {
+            return extensionMap[ext];
+          }
         }
       }
+
+      // Try to detect from code content
+      const codeLines = code.split('\n');
+      const firstLine = codeLines[0]?.toLowerCase() || '';
+      const firstNonEmptyLine = codeLines.find(line => line.trim().length > 0)?.toLowerCase() || '';
+
+      // Check for shebang
+      if (firstLine.startsWith('#!')) {
+        if (firstLine.includes('python')) return 'Python';
+        if (firstLine.includes('node')) return 'JavaScript';
+        if (firstLine.includes('bash') || firstLine.includes('sh')) return 'Shell';
+      }
+
+      // Check for language-specific patterns
+      if (firstNonEmptyLine.includes('<?php')) return 'PHP';
+
+      // Look for language-specific keywords and patterns in first 1000 characters
+      const codeSnippet = code.substring(0, 1000);
+      
+      const languagePatterns: [RegExp, string][] = [
+        [/\b(interface|namespace|type)\s+\w+/i, 'TypeScript'],
+        [/\b(import\s+React|export\s+default|const\s+\w+\s*=\s*\(\)\s*=>)/i, 'JavaScript'],
+        [/\b(def\s+\w+|import\s+\w+\s*:\s*\w+)/i, 'Python'],
+        [/\b(public|private)\s+class\s+\w+/i, 'Java'],
+        [/\b(func\s+\w+|package\s+\w+)/i, 'Go'],
+        [/\b(fn\s+\w+|pub\s+\w+)/i, 'Rust'],
+        [/\busing\s+System;/i, 'C#'],
+        [/#include\s*<\w+>/i, 'C++'],
+        [/\b(module|class)\s+\w+\s*\n\s*end\b/i, 'Ruby']
+      ];
+
+      for (const [pattern, language] of languagePatterns) {
+        if (pattern.test(codeSnippet)) {
+          return language;
+        }
+      }
+
+      // If still uncertain, try to detect from imports and common patterns
+      const importPatterns: [RegExp, string][] = [
+        [/\bimport\s+{\s*[\w\s,]+}\s+from\s+['"][@\w/-]+['"]/i, 'TypeScript'],
+        [/\brequire\(['"][\w/-]+['"]\)/i, 'JavaScript'],
+        [/\bfrom\s+[\w.]+\s+import\s+[\w*,\s]+/i, 'Python'],
+        [/\bimport\s+[\w.]+;/i, 'Java']
+      ];
+
+      for (const [pattern, language] of importPatterns) {
+        if (pattern.test(codeSnippet)) {
+          return language;
+        }
+      }
+
+      // If still uncertain and code is non-empty, ask LLM
+      if (code.trim().length > 0) {
+        try {
+          const prompt = `Please identify the programming language of this code. Respond with ONLY the language name:\n\n${codeSnippet}`;
+          const response = await this.ask(prompt);
+          if (response && typeof response === 'string') {
+            const detectedLanguage = response.trim();
+            // Validate the response is a known language
+            const knownLanguages = new Set([
+              'TypeScript', 'JavaScript', 'Python', 'Java', 'Ruby', 'PHP',
+              'Go', 'Rust', 'C#', 'C++', 'C', 'Swift', 'Kotlin', 'Scala',
+              'R', 'Dart', 'Shell', 'SQL'
+            ]);
+            if (knownLanguages.has(detectedLanguage)) {
+              return detectedLanguage;
+            }
+          }
+        } catch (error) {
+          logger.error(`[${this.name}] Error asking LLM for language detection:`, error);
+        }
+      }
+
+      // Default to Unknown if all detection methods fail
+      return 'Unknown';
+    } catch (error) {
+      logger.error(`[${this.name}] Error detecting language:`, error);
+      return 'Unknown';
     }
-    
-    // Simple heuristics for common languages
-    if (code.includes('import React') || code.includes('useState(') || code.includes('function Component(')) {
-      return 'JavaScript (React)';
-    }
-    if (code.includes('interface ') && code.includes(': ') && code.includes('export type')) {
-      return 'TypeScript';
-    }
-    if (code.includes('def ') && code.includes('import ') && (code.includes('self') || code.includes('__init__'))) {
-      return 'Python';
-    }
-    if (code.includes('public class ') || code.includes('private ') || code.includes('protected ')) {
-      return 'Java';
-    }
-    if (code.includes('func ') && code.includes('package ')) {
-      return 'Go';
-    }
-    
-    // Default to JavaScript as it's common
-    return 'JavaScript';
   }
 
   /**
@@ -548,174 +736,133 @@ export class SummarizeCode extends BaseAction {
    */
   private formatSummary(summary: CodeSummary, options?: SummarizeCodeOptions): string {
     const level = options?.level || SummaryLevel.STANDARD;
-    
-    let markdown = `# Code Summary: ${summary.overview.title}\n\n`;
-    
-    // Add overview section
-    markdown += `## Overview\n\n`;
-    markdown += `- **Language**: ${summary.overview.language}\n`;
-    markdown += `- **Primary Purpose**: ${summary.overview.primary_purpose}\n`;
-    markdown += `- **Line Count**: ${summary.overview.line_count}\n`;
-    markdown += `- **Complexity**: ${summary.overview.estimated_complexity}\n\n`;
-    markdown += `${summary.overview.description}\n\n`;
-    
-    // Add components section if requested
-    if (options?.focus_on_components !== false && summary.components.length > 0) {
-      markdown += `## Components\n\n`;
-      
-      if (level === SummaryLevel.BRIEF) {
-        // Brief listing
-        markdown += `This code contains ${summary.components.length} components:\n\n`;
-        summary.components.forEach(component => {
-          markdown += `- **${component.name}** (${component.type}): ${component.description}\n`;
-        });
-        markdown += '\n';
-      } else {
-        // Detailed listing
-        summary.components.forEach(component => {
-          markdown += `### ${component.name} (${component.type})\n\n`;
-          markdown += `${component.description}\n\n`;
-          
+    let output = '';
+
+    // Title and overview section - always included
+    output += `# Code Summary: ${summary.overview.title}\n\n`;
+    output += `## Overview\n\n`;
+    output += `${summary.overview.description}\n\n`;
+    output += `**Language**: ${summary.overview.language}\n`;
+    output += `**Primary Purpose**: ${summary.overview.primary_purpose}\n`;
+    output += `**Line Count**: ${summary.overview.line_count}\n`;
+    output += `**Complexity**: ${summary.overview.estimated_complexity}\n\n`;
+
+    // Additional sections based on summary level
+    if (level !== SummaryLevel.BRIEF) {
+      // Components section
+      if (options?.focus_on_components !== false && summary.components.length > 0) {
+        output += `## Components\n\n`;
+        for (const component of summary.components) {
+          output += `### ${component.name}\n\n`;
+          output += `**Type**: ${component.type}\n`;
+          output += `**Description**: ${component.description}\n`;
           if (level === SummaryLevel.DETAILED) {
-            if (component.location) markdown += `- **Location**: ${component.location}\n`;
-            if (component.lineCount) markdown += `- **Line Count**: ${component.lineCount}\n`;
-            if (component.complexity) markdown += `- **Complexity**: ${component.complexity}\n`;
-            if (component.dependencies && component.dependencies.length > 0) {
-              markdown += `- **Dependencies**: ${component.dependencies.join(', ')}\n`;
-            }
-            markdown += '\n';
+            if (component.location) output += `**Location**: ${component.location}\n`;
+            if (component.dependencies) output += `**Dependencies**: ${component.dependencies.join(', ')}\n`;
+            if (component.complexity) output += `**Complexity Score**: ${component.complexity}\n`;
+            if (component.lineCount) output += `**Line Count**: ${component.lineCount}\n`;
           }
-        });
-      }
-    }
-    
-    // Add functional areas if available
-    if (options?.focus_on_components !== false && summary.functional_areas?.length > 0) {
-      markdown += `## Functional Areas\n\n`;
-      
-      summary.functional_areas.forEach(area => {
-        markdown += `### ${area.name}\n\n`;
-        markdown += `${area.description}\n\n`;
-        
-        if (level !== SummaryLevel.BRIEF && area.components.length > 0) {
-          markdown += `**Related Components**: ${area.components.join(', ')}\n\n`;
+          output += '\n';
         }
-      });
-    }
-    
-    // Add design patterns if requested
-    if (options?.focus_on_patterns !== false && summary.design_patterns?.length > 0) {
-      markdown += `## Design Patterns\n\n`;
-      
-      if (level === SummaryLevel.BRIEF) {
-        // Brief listing
-        markdown += `Identified patterns: ${summary.design_patterns.map(p => p.name).join(', ')}\n\n`;
-      } else {
-        // Detailed listing
-        summary.design_patterns.forEach(pattern => {
-          markdown += `### ${pattern.name} (${Math.round(pattern.confidence * 100)}% confidence)\n\n`;
-          markdown += `${pattern.description}\n\n`;
-          
+      }
+
+      // Functional areas section
+      if (summary.functional_areas.length > 0) {
+        output += `## Functional Areas\n\n`;
+        for (const area of summary.functional_areas) {
+          output += `### ${area.name}\n\n`;
+          output += `${area.description}\n\n`;
+          if (level === SummaryLevel.DETAILED && area.components.length > 0) {
+            output += `**Components**: ${area.components.join(', ')}\n\n`;
+          }
+        }
+      }
+
+      // Design patterns section
+      if (options?.focus_on_patterns !== false && summary.design_patterns.length > 0) {
+        output += `## Design Patterns\n\n`;
+        for (const pattern of summary.design_patterns) {
+          output += `### ${pattern.name}\n\n`;
+          output += `**Confidence**: ${Math.round(pattern.confidence * 100)}%\n`;
+          output += `**Description**: ${pattern.description}\n`;
           if (level === SummaryLevel.DETAILED) {
-            if (pattern.location) markdown += `**Location**: ${pattern.location}\n\n`;
-            if (pattern.benefits && pattern.benefits.length > 0) {
-              markdown += `**Benefits**:\n\n`;
-              pattern.benefits.forEach(benefit => {
-                markdown += `- ${benefit}\n`;
-              });
-              markdown += '\n';
+            if (pattern.location) output += `**Location**: ${pattern.location}\n`;
+            if (pattern.benefits.length > 0) {
+              output += `\n**Benefits**:\n`;
+              pattern.benefits.forEach(benefit => output += `- ${benefit}\n`);
             }
           }
-        });
-      }
-    }
-    
-    // Add relationships if available and detailed level
-    if (options?.focus_on_patterns !== false && level !== SummaryLevel.BRIEF) {
-      if (summary.relationships.imports?.length > 0 || 
-          summary.relationships.exports?.length > 0 || 
-          summary.relationships.internal_dependencies?.length > 0) {
-        
-        markdown += `## Relationships and Dependencies\n\n`;
-        
-        if (summary.relationships.imports?.length > 0) {
-          markdown += `**Imports**:\n\n`;
-          summary.relationships.imports.forEach(imp => {
-            markdown += `- ${imp}\n`;
-          });
-          markdown += '\n';
-        }
-        
-        if (summary.relationships.exports?.length > 0) {
-          markdown += `**Exports**:\n\n`;
-          summary.relationships.exports.forEach(exp => {
-            markdown += `- ${exp}\n`;
-          });
-          markdown += '\n';
-        }
-        
-        if (level === SummaryLevel.DETAILED && summary.relationships.internal_dependencies?.length > 0) {
-          markdown += `**Internal Dependencies**:\n\n`;
-          summary.relationships.internal_dependencies.forEach(dep => {
-            markdown += `- ${dep.from} ${dep.type.toLowerCase()} ${dep.to}\n`;
-          });
-          markdown += '\n';
+          output += '\n';
         }
       }
-    }
-    
-    // Add improvements if requested
-    if (options?.focus_on_improvements !== false && summary.improvements?.length > 0) {
-      markdown += `## Suggested Improvements\n\n`;
-      
-      summary.improvements.forEach((improvement, index) => {
-        const priorityEmoji = improvement.priority === 'HIGH' ? '🔴' : 
-                             improvement.priority === 'MEDIUM' ? '🟡' : '🟢';
+
+      // Dependencies and relationships section
+      if (level === SummaryLevel.DETAILED && 
+          (summary.relationships.imports.length > 0 || 
+           summary.relationships.exports.length > 0 || 
+           summary.relationships.internal_dependencies.length > 0)) {
+        output += `## Dependencies and Relationships\n\n`;
         
-        markdown += `### ${index + 1}. ${priorityEmoji} ${improvement.description}\n\n`;
-        markdown += `**Rationale**: ${improvement.rationale}\n\n`;
-        
-        if (level !== SummaryLevel.BRIEF) {
-          markdown += `**Priority**: ${improvement.priority}\n`;
-          markdown += `**Difficulty**: ${improvement.implementation_difficulty}\n\n`;
+        if (summary.relationships.imports.length > 0) {
+          output += `### External Dependencies\n\n`;
+          summary.relationships.imports.forEach(imp => output += `- ${imp}\n`);
+          output += '\n';
         }
         
-        if (level === SummaryLevel.DETAILED && improvement.code_example) {
-          markdown += `**Example**:\n\`\`\`\n${improvement.code_example}\n\`\`\`\n\n`;
-        }
-      });
-    }
-    
-    // Add documentation analysis if requested
-    if (options?.focus_on_documentation !== false) {
-      markdown += `## Documentation Analysis\n\n`;
-      
-      const qualityEmoji = summary.documentation.quality === 'EXCELLENT' ? '✅' : 
-                          summary.documentation.quality === 'GOOD' ? '✓' : 
-                          summary.documentation.quality === 'ADEQUATE' ? '⚠️' : '❌';
-      
-      markdown += `**Quality**: ${qualityEmoji} ${summary.documentation.quality}\n`;
-      markdown += `**Coverage**: ${summary.documentation.coverage_percentage}%\n\n`;
-      
-      if (level !== SummaryLevel.BRIEF) {
-        if (summary.documentation.missing_documentation?.length > 0) {
-          markdown += `**Missing Documentation**:\n\n`;
-          summary.documentation.missing_documentation.forEach(item => {
-            markdown += `- ${item}\n`;
-          });
-          markdown += '\n';
+        if (summary.relationships.exports.length > 0) {
+          output += `### Exports\n\n`;
+          summary.relationships.exports.forEach(exp => output += `- ${exp}\n`);
+          output += '\n';
         }
         
-        if (summary.documentation.suggestions?.length > 0) {
-          markdown += `**Suggestions**:\n\n`;
-          summary.documentation.suggestions.forEach(suggestion => {
-            markdown += `- ${suggestion}\n`;
-          });
-          markdown += '\n';
+        if (summary.relationships.internal_dependencies.length > 0) {
+          output += `### Internal Dependencies\n\n`;
+          summary.relationships.internal_dependencies.forEach(dep => 
+            output += `- ${dep.from} ${dep.type} ${dep.to}\n`
+          );
+          output += '\n';
+        }
+      }
+
+      // Improvements section
+      if (options?.focus_on_improvements !== false && summary.improvements.length > 0) {
+        output += `## Suggested Improvements\n\n`;
+        for (const improvement of summary.improvements) {
+          output += `### ${improvement.description}\n\n`;
+          output += `**Rationale**: ${improvement.rationale}\n`;
+          output += `**Priority**: ${improvement.priority}\n`;
+          output += `**Difficulty**: ${improvement.implementation_difficulty}\n`;
+          if (level === SummaryLevel.DETAILED && improvement.code_example) {
+            output += `\n**Example**:\n\`\`\`\n${improvement.code_example}\n\`\`\`\n`;
+          }
+          output += '\n';
+        }
+      }
+
+      // Documentation section
+      if (options?.focus_on_documentation !== false) {
+        output += `## Documentation Analysis\n\n`;
+        output += `**Quality**: ${summary.documentation.quality === 'POOR' ? '❌' : '✅'} ${summary.documentation.quality}\n`;
+        output += `**Coverage**: ${summary.documentation.coverage_percentage}%\n\n`;
+        
+        if (summary.documentation.missing_documentation.length > 0) {
+          output += `**Missing Documentation**:\n\n`;
+          summary.documentation.missing_documentation.forEach(doc => 
+            output += `- ${doc}\n`
+          );
+          output += '\n';
+        }
+        
+        if (summary.documentation.suggestions.length > 0) {
+          output += `**Suggestions**:\n\n`;
+          summary.documentation.suggestions.forEach(suggestion => 
+            output += `- ${suggestion}\n`
+          );
+          output += '\n';
         }
       }
     }
-    
-    return markdown;
+
+    return output.trim();
   }
 } 

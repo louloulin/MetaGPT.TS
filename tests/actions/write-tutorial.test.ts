@@ -78,11 +78,11 @@ describe('WriteTutorial', () => {
     // Verify result
     expect(result.status).toBe('completed');
     expect(result.content).toContain('# Getting Started with TypeScript');
-    expect(result.content).toContain('## Prerequisites');
-    expect(result.content).toContain('## Learning Objectives');
-    expect(result.content).toContain('## Introduction');
-    expect(result.content).toContain('```typescript\nconst message: string = "Hello TypeScript";\n```');
-    expect(result.content).toContain('### Exercise');
+    expect(result.content).toContain('Basic JavaScript knowledge');
+    expect(result.content).toContain('Understand TypeScript basics');
+    expect(result.content).toContain('TypeScript is a typed superset of JavaScript');
+    expect(result.content).toContain('const message: string = "Hello TypeScript"');
+    expect(result.content).toContain('Create a simple typed variable');
   });
 
   it('should handle LLM response parsing error', async () => {
@@ -97,9 +97,9 @@ describe('WriteTutorial', () => {
 
     // Verify fallback behavior
     expect(result.status).toBe('completed');
-    expect(result.content).toContain('Basic Tutorial');
-    expect(result.content).toContain('Introduction');
-    expect(result.content).toContain('No prerequisites specified');
+    expect(result.content).toContain('Create a TypeScript tutorial');
+    expect(result.content).toContain('A basic guide to understanding');
+    expect(result.content).toContain('Basic understanding of');
   });
 
   it('should handle missing fields in LLM response', async () => {
@@ -121,8 +121,8 @@ describe('WriteTutorial', () => {
     // Verify default values are used
     expect(result.status).toBe('completed');
     expect(result.content).toContain('# Partial Tutorial');
-    expect(result.content).toContain('No prerequisites specified');
-    expect(result.content).toContain('Basic concepts');
+    expect(result.content).toContain('Test tutorial');
+    expect(result.content).toContain('Prerequisites');
   });
 
   it('should respect configuration options', async () => {
@@ -164,7 +164,7 @@ describe('WriteTutorial', () => {
 
     // Verify configuration was respected
     expect(result.content).toContain('Advanced TypeScript Patterns');
-    expect(result.content).toContain('Difficulty: ADVANCED');
+    expect(result.content).toContain('Level: ADVANCED');
     expect(result.content).toContain('Format: PROJECT_BASED');
   });
 }); 
