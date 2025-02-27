@@ -7,7 +7,8 @@ export { BaseAction } from './base-action';
 
 // Code and product related actions
 export { WriteCode } from './write-code';
-export { AnalyzePrompt } from './analyze-prompt';
+// Temporarily commented out due to missing module
+// export { AnalyzePrompt } from './analyze-prompt';
 export { WritePRD } from './write-prd';
 export { WriteTutorial } from './write-tutorial';
 

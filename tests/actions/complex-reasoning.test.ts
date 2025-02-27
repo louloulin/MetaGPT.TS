@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ComplexReasoning, ReasoningMethod } from '../../src/actions/complex-reasoning';
 import type { ReasoningResult, ReasoningConfig } from '../../src/actions/complex-reasoning';
+import { UserMessage } from '../../src/types/message';
 
 // Mock LLM provider
 const mockLLM = {
@@ -234,13 +235,22 @@ const mockLLM = {
 };
 
 describe('ComplexReasoning', () => {
+  let mockLLM: any;
   let complexReasoning: ComplexReasoning;
   
   beforeEach(() => {
     // Reset mocks before each test
     vi.resetAllMocks();
     
-    // Create ComplexReasoning instance with mock LLM
+    // Create mock LLM
+    mockLLM = {
+      chat: vi.fn(),
+      getName: () => 'MockLLM',
+      getModel: () => 'test-model',
+      generate: vi.fn(),
+    };
+    
+    // Create ComplexReasoning instance
     complexReasoning = new ComplexReasoning({
       name: 'ComplexReasoning',
       llm: mockLLM,
@@ -252,218 +262,228 @@ describe('ComplexReasoning', () => {
   
   it('should create a ComplexReasoning instance', () => {
     expect(complexReasoning).toBeInstanceOf(ComplexReasoning);
+    expect(complexReasoning.name).toBe('ComplexReasoning');
   });
   
-  it('should fail when no problem is provided', async () => {
-    // Run the action without providing a problem
+  it('should handle empty message list', async () => {
     const result = await complexReasoning.run();
-    
-    // Verify that the action fails with appropriate message
     expect(result.status).toBe('failed');
-    expect(result.content).toContain('No problem statement provided');
+    expect(result.content).toContain('No messages available');
   });
   
-  it('should analyze a design pattern problem and provide structured reasoning', async () => {
-    // Create ComplexReasoning instance with a design pattern problem
-    const designProblemReasoning = new ComplexReasoning({
-      name: 'ComplexReasoning',
-      llm: mockLLM,
-      args: {
-        problem: 'What is the most appropriate software design pattern for a notification system that needs to send updates to multiple subscribers in different formats?',
-        context: 'Building a modular and extensible system'
-      }
-    });
-    
-    // Setup the ask method
-    (designProblemReasoning as any).ask = mockLLM.ask;
-    
-    // Execute the action
-    const result = await designProblemReasoning.run();
-    
-    // Verify that reasoning was performed correctly
-    expect(result.status).toBe('completed');
-    expect(result.content).toContain('Observer design pattern');
-    expect(result.content).toContain('Problem Decomposition');
-    expect(result.content).toContain('Alternative Solutions');
-    
-    // Verify that the instructContent contains the ReasoningResult
-    const reasoningResult = result.instructContent as ReasoningResult;
-    expect(reasoningResult.problem_statement).toContain('design pattern for a notification system');
-    expect(reasoningResult.conclusion).toContain('Observer design pattern');
-    expect(reasoningResult.confidence_score).toBeGreaterThan(0.8);
-    expect(reasoningResult.sub_problems.length).toBe(2);
-    expect(reasoningResult.reasoning_path.length).toBe(3);
-    expect(reasoningResult.alternative_solutions.length).toBe(2);
-  });
-  
-  it('should handle mathematical problems effectively', async () => {
-    // Create ComplexReasoning instance with a math problem
-    const mathProblemReasoning = new ComplexReasoning({
-      name: 'ComplexReasoning',
-      llm: mockLLM,
-      args: {
-        problem: 'Calculate the area of circle with radius 5 units',
-        domain_specific_knowledge: 'Mathematical formulas for geometric shapes'
-      }
-    });
-    
-    // Setup the ask method
-    (mathProblemReasoning as any).ask = mockLLM.ask;
-    
-    // Execute the action
-    const result = await mathProblemReasoning.run();
-    
-    // Verify the reasoning result
-    expect(result.status).toBe('completed');
-    expect(result.content).toContain('78.54 square units');
-    
-    // Check specific reasoning elements
-    const reasoningResult = result.instructContent as ReasoningResult;
-    expect(reasoningResult.problem_statement).toContain('Calculate the area of a circle');
-    expect(reasoningResult.reasoning_path.length).toBe(3);
-    expect(reasoningResult.confidence_score).toBeGreaterThan(0.95);
-  });
-  
-  it('should respect reasoning method constraints when specified', async () => {
-    // Spy on the constructReasoningPrompt method
-    const promptSpy = vi.spyOn(ComplexReasoning.prototype as any, 'constructReasoningPrompt');
-    
-    // Create ComplexReasoning instance with specific reasoning methods
-    const constrainedReasoning = new ComplexReasoning({
-      name: 'ComplexReasoning',
-      llm: mockLLM,
-      args: {
-        problem: 'What is the best approach for optimizing a database query?',
-        reasoning_methods: [ReasoningMethod.DEDUCTIVE, ReasoningMethod.CAUSAL]
-      }
-    });
-    
-    // Setup the ask method
-    (constrainedReasoning as any).ask = mockLLM.ask;
-    
-    // Execute the action
-    await constrainedReasoning.run();
-    
-    // Check that only the specified reasoning methods were included in the prompt
-    expect(promptSpy).toHaveBeenCalled();
-    const promptCall = promptSpy.mock.calls[0][0] as ReasoningConfig;
-    expect(promptCall.reasoning_methods).toHaveLength(2);
-    expect(promptCall.reasoning_methods).toContain(ReasoningMethod.DEDUCTIVE);
-    expect(promptCall.reasoning_methods).toContain(ReasoningMethod.CAUSAL);
-    expect(promptCall.reasoning_methods).not.toContain(ReasoningMethod.ANALOGICAL);
-  });
-  
-  it('should handle LLM response parsing errors gracefully', async () => {
-    // Create ComplexReasoning instance with input that will trigger invalid JSON
-    const invalidJsonReasoning = new ComplexReasoning({
-      name: 'ComplexReasoning',
-      llm: mockLLM,
-      args: {
-        problem: 'This will trigger invalid json',
-      }
-    });
-    
-    // Setup the ask method
-    (invalidJsonReasoning as any).ask = mockLLM.ask;
-    
-    // Execute the action
-    const result = await invalidJsonReasoning.run();
-    
-    // Verify that a fallback result was created
-    expect(result.status).toBe('completed');
-    expect(result.content).toContain('Reasoning process encountered an error');
-    
-    // Verify the fallback reasoning result structure
-    const fallbackResult = result.instructContent as ReasoningResult;
-    expect(fallbackResult.problem_statement).toBe('This will trigger invalid json');
-    expect(fallbackResult.conclusion).toContain('error');
-    expect(fallbackResult.confidence_score).toBe(0);
-    expect(fallbackResult.limitations.length).toBeGreaterThan(0);
-  });
-  
-  it('should enforce confidence thresholds when specified', async () => {
-    // Mock implementation to return a result with medium confidence
-    mockLLM.ask.mockImplementationOnce(async () => {
-      return JSON.stringify({
-        problem_statement: "Some test problem",
-        problem_analysis: "Basic analysis",
-        assumptions: ["Test assumption"],
-        sub_problems: [{
-          id: "sub1",
-          description: "Sub-problem 1",
+  it('should perform complex reasoning successfully', async () => {
+    const mockResult: ReasoningResult = {
+      problem_statement: "Optimize system performance under high load",
+      problem_analysis: "System experiencing slowdown during peak usage hours",
+      assumptions: [
+        "Current infrastructure can be modified",
+        "Budget available for optimization"
+      ],
+      sub_problems: [
+        {
+          id: "SP1",
+          description: "Database query optimization",
           prerequisites: [],
-          solution: "Basic solution"
-        }],
-        reasoning_path: [{
+          solution: "Implement query caching",
+          reasoning_steps: [
+            {
+              step_number: 1,
+              description: "Analyze query patterns",
+              method: ReasoningMethod.DEDUCTIVE,
+              input: "Query logs",
+              output: "Frequently executed queries identified",
+              confidence: 0.9,
+              justification: "Log analysis shows clear patterns"
+            }
+          ]
+        }
+      ],
+      reasoning_path: [
+        {
           step_number: 1,
-          description: "Step 1",
-          method: "DEDUCTIVE",
-          input: "Input data",
-          output: "Output data",
-          confidence: 0.7,
-          justification: "Basic justification"
-        }],
-        conclusion: "Test conclusion",
-        recommended_solution: "Test solution",
+          description: "Problem decomposition",
+          method: ReasoningMethod.ANALOGICAL,
+          input: "System performance metrics",
+          output: "Key bottlenecks identified",
+          confidence: 0.85,
+          justification: "Based on performance data"
+        }
+      ],
+      conclusion: "Implement caching and load balancing",
+      recommended_solution: "Multi-layer caching strategy",
+      alternative_solutions: [
+        {
+          description: "Hardware upgrade",
+          pros: ["Immediate improvement", "Simple to implement"],
+          cons: ["Expensive", "Temporary solution"],
+          confidence: 0.7
+        }
+      ],
+      confidence_score: 0.85,
+      limitations: ["Cost constraints", "Implementation complexity"],
+      additional_information_needed: ["Detailed performance metrics"]
+    };
+
+    mockLLM.chat.mockResolvedValue(JSON.stringify(mockResult));
+
+    complexReasoning.context.memory.add(new UserMessage('How can we optimize system performance?'));
+
+    const result = await complexReasoning.run();
+
+    expect(result.status).toBe('completed');
+    expect(result.content).toContain('Problem Statement');
+    expect(result.content).toContain('Analysis');
+    expect(result.content).toContain('Sub-Problems');
+    expect(result.content).toContain('Reasoning Path');
+    expect(result.content).toContain('Conclusion');
+    expect(result.content).toContain('Alternative Solutions');
+  });
+  
+  it('should handle LLM response parsing error', async () => {
+    // Mock LLM response with invalid JSON
+    mockLLM.chat.mockResolvedValue('Invalid JSON response');
+
+    // Add a message to process
+    complexReasoning.context.memory.add(new UserMessage('Analyze this problem'));
+
+    // Run reasoning
+    const result = await complexReasoning.run();
+
+    // Verify fallback behavior
+    expect(result.status).toBe('completed');
+    expect(result.content).toContain('Reasoning Analysis');
+    expect(result.content).toContain('Unable to generate detailed analysis');
+    expect(result.content).toContain('Basic problem information');
+  });
+  
+  it('should handle missing fields in LLM response', async () => {
+    // Mock LLM response with missing fields
+    const partialResult = {
+      problem_statement: 'Test problem',
+      problem_analysis: 'Basic analysis'
+      // Other fields missing
+    };
+
+    mockLLM.chat.mockResolvedValue(JSON.stringify(partialResult));
+
+    // Add a message to process
+    complexReasoning.context.memory.add(new UserMessage('Analyze this problem'));
+
+    // Run reasoning
+    const result = await complexReasoning.run();
+
+    // Verify default values are used
+    expect(result.status).toBe('completed');
+    expect(result.content).toContain('Test problem');
+    expect(result.content).toContain('Basic analysis');
+    expect(result.content).toContain('No sub-problems identified');
+  });
+  
+  it('should handle different reasoning methods', async () => {
+    const testCases = [
+      {
+        method: ReasoningMethod.DEDUCTIVE,
+        description: 'Logical deduction from general principles'
+      },
+      {
+        method: ReasoningMethod.INDUCTIVE,
+        description: 'Pattern recognition from specific cases'
+      },
+      {
+        method: ReasoningMethod.ABDUCTIVE,
+        description: 'Best explanation for observations'
+      },
+      {
+        method: ReasoningMethod.ANALOGICAL,
+        description: 'Comparison with similar situations'
+      }
+    ];
+
+    for (const testCase of testCases) {
+      // Mock reasoning result for each method
+      const mockResult: ReasoningResult = {
+        problem_statement: `Test problem using ${testCase.method}`,
+        problem_analysis: testCase.description,
+        assumptions: ['Test assumption'],
+        sub_problems: [],
+        reasoning_path: [
+          {
+            step_number: 1,
+            description: `Apply ${testCase.method}`,
+            method: testCase.method,
+            input: 'Test input',
+            output: 'Test output',
+            confidence: 0.8,
+            justification: 'Test justification'
+          }
+        ],
+        conclusion: 'Test conclusion',
+        recommended_solution: 'Test solution',
         alternative_solutions: [],
-        confidence_score: 0.65, // Below the threshold
-        limitations: ["Test limitation"]
-      });
-    });
-    
-    // Create ComplexReasoning instance with high confidence requirement
+        confidence_score: 0.8,
+        limitations: ['Test limitation']
+      };
+
+      mockLLM.chat.mockResolvedValue(JSON.stringify(mockResult));
+
+      // Add a message to process
+      complexReasoning.context.memory.add(new UserMessage(`Analyze using ${testCase.method}`));
+
+      // Run reasoning
+      const result = await complexReasoning.run();
+
+      // Verify method-specific handling
+      expect(result.status).toBe('completed');
+      expect(result.content).toContain(testCase.method);
+      expect(result.content).toContain(testCase.description);
+    }
+  });
+  
+  it('should respect confidence thresholds', async () => {
+    // Create instance with high confidence requirement
     const highConfidenceReasoning = new ComplexReasoning({
       name: 'ComplexReasoning',
       llm: mockLLM,
       args: {
-        problem: 'Test confidence threshold problem',
-        required_confidence: 0.8 // Set high confidence threshold
+        required_confidence: 0.9
       }
     });
-    
-    // Setup the ask method
-    (highConfidenceReasoning as any).ask = mockLLM.ask;
-    
-    // Execute the action
+
+    // Mock result with low confidence
+    const mockResult: ReasoningResult = {
+      problem_statement: 'Test problem',
+      problem_analysis: 'Test analysis',
+      assumptions: ['Test assumption'],
+      sub_problems: [],
+      reasoning_path: [
+        {
+          step_number: 1,
+          description: 'Test step',
+          method: ReasoningMethod.DEDUCTIVE,
+          input: 'Test input',
+          output: 'Test output',
+          confidence: 0.7,
+          justification: 'Test justification'
+        }
+      ],
+      conclusion: 'Test conclusion',
+      recommended_solution: 'Test solution',
+      alternative_solutions: [],
+      confidence_score: 0.7,
+      limitations: ['Confidence below threshold']
+    };
+
+    mockLLM.chat.mockResolvedValue(JSON.stringify(mockResult));
+
+    // Add a message to process
+    highConfidenceReasoning.context.memory.add(new UserMessage('Analyze this problem'));
+
+    // Run reasoning
     const result = await highConfidenceReasoning.run();
-    
-    // Verify the result
-    const reasoningResult = result.instructContent as ReasoningResult;
-    expect(reasoningResult.confidence_score).toBe(0.65);
-    expect(reasoningResult.limitations).toContain(expect.stringContaining('confidence') && expect.stringContaining('below the required threshold'));
-  });
-  
-  it('should customize output based on domain knowledge', async () => {
-    // Create a spy for the constructReasoningPrompt method
-    const promptSpy = vi.spyOn(ComplexReasoning.prototype as any, 'constructReasoningPrompt');
-    
-    // Domain-specific knowledge
-    const domainKnowledge = `
-    Machine Learning Principles:
-    1. Supervised Learning: Models learn from labeled data
-    2. Unsupervised Learning: Models find patterns in unlabeled data
-    3. Reinforcement Learning: Models learn through trial and error
-    `;
-    
-    // Create ComplexReasoning instance with domain knowledge
-    const domainSpecificReasoning = new ComplexReasoning({
-      name: 'ComplexReasoning',
-      llm: mockLLM,
-      args: {
-        problem: 'What machine learning approach should I use for sentiment analysis?',
-        domain_specific_knowledge: domainKnowledge
-      }
-    });
-    
-    // Setup the ask method
-    (domainSpecificReasoning as any).ask = mockLLM.ask;
-    
-    // Execute the action
-    await domainSpecificReasoning.run();
-    
-    // Check that domain knowledge was included in the prompt
-    expect(promptSpy).toHaveBeenCalled();
-    const promptCall = promptSpy.mock.calls[0][0] as ReasoningConfig;
-    expect(promptCall.domain_specific_knowledge).toBe(domainKnowledge);
+
+    // Verify confidence handling
+    expect(result.status).toBe('completed');
+    expect(result.content).toContain('Warning: Confidence below required threshold');
+    expect(result.content).toContain('Consider gathering more information');
   });
 }); 

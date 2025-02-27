@@ -1,233 +1,218 @@
-import { z } from 'zod';
-import type { ActionOutput } from '../types/action';
-import type { LLMProvider } from '../types/llm';
+/**
+ * WriteTutorial Action
+ * 
+ * This action generates educational tutorials and guides, breaking down complex topics
+ * into clear, step-by-step instructions with examples and explanations.
+ */
+
 import { BaseAction } from './base-action';
+import type { ActionOutput } from '../types/action';
 import { logger } from '../utils/logger';
 
-/**
- * 动作配置接口
- */
-export interface ActionConfig {
-  name?: string;
-  description?: string;
-  args?: Record<string, any>;
-  llm: LLMProvider;
-  memory?: any;
-  workingMemory?: any;
+export enum TutorialLevel {
+  BEGINNER = 'BEGINNER',
+  INTERMEDIATE = 'INTERMEDIATE',
+  ADVANCED = 'ADVANCED'
 }
 
-/**
- * 目录结构类型定义
- */
-export type Directory = {
+export enum TutorialFormat {
+  STEP_BY_STEP = 'STEP_BY_STEP',
+  CONCEPT_BASED = 'CONCEPT_BASED',
+  PROJECT_BASED = 'PROJECT_BASED',
+  REFERENCE_GUIDE = 'REFERENCE_GUIDE'
+}
+
+export interface TutorialSection {
   title: string;
-  directory: Array<Record<string, string[]>>;
-};
-
-/**
- * 目录结构模式验证
- */
-export const DirectorySchema = z.object({
-  title: z.string(),
-  directory: z.array(z.record(z.string(), z.array(z.string()))),
-});
-
-/**
- * 教程目录生成动作配置
- */
-export interface WriteDirectoryConfig extends ActionConfig {
-  language?: string;
+  content: string;
+  code_examples?: string[];
+  key_points?: string[];
+  exercises?: {
+    description: string;
+    solution?: string;
+  }[];
 }
 
-/**
- * 教程目录生成动作
- */
-export class WriteDirectory extends BaseAction {
-  language: string;
+export interface Tutorial {
+  title: string;
+  description: string;
+  prerequisites: string[];
+  learning_objectives: string[];
+  difficulty_level: TutorialLevel;
+  format: TutorialFormat;
+  estimated_time: string;
+  sections: TutorialSection[];
+  summary: string;
+  further_reading?: string[];
+  keywords: string[];
+}
 
-  constructor(config: WriteDirectoryConfig) {
+export interface WriteTutorialConfig {
+  topic: string;
+  level?: TutorialLevel;
+  format?: TutorialFormat;
+  include_exercises?: boolean;
+  target_audience?: string;
+  max_length?: number;
+  focus_areas?: string[];
+}
+
+export interface WriteTutorialArgs {
+  level?: TutorialLevel;
+  format?: TutorialFormat;
+  include_exercises?: boolean;
+  target_audience?: string;
+  max_length?: number;
+  focus_areas?: string[];
+}
+
+export class WriteTutorial extends BaseAction {
+  protected args: WriteTutorialArgs;
+
+  constructor(config: any) {
     super({
+      name: 'WriteTutorial',
       ...config,
-      name: 'WriteDirectory',
     });
-    this.language = config.language || 'Chinese';
-    logger.info(`[WriteDirectory] Initialized with language: ${this.language}`);
+    this.args = config.args || {};
   }
 
-  /**
-   * 执行动作，生成教程目录结构
-   */
-  async run(): Promise<ActionOutput> {
-    try {
-      logger.info('[WriteDirectory] Starting run() method');
-      const topic = this.getArg<string>('topic') || '';
-      logger.info(`[WriteDirectory] Topic: "${topic}"`);
-      
-      if (!topic) {
-        logger.warn('[WriteDirectory] Topic is required but not provided');
-        return this.createOutput('Topic is required', 'failed');
-      }
+  private async generateTutorial(config: WriteTutorialConfig): Promise<Tutorial> {
+    logger.debug('[WriteTutorial] Generating tutorial for:', config.topic);
 
-      const prompt = this.generateDirectoryPrompt(topic);
-      logger.info(`[WriteDirectory] Generated prompt (${prompt.length} characters)`);
-      logger.info('[WriteDirectory] Calling LLM to generate directory structure');
-      
-      const result = await this.llm.generate(prompt);
-      logger.info(`[WriteDirectory] Received response from LLM (${result.length} characters)`);
-      
-      // 解析JSON结果
-      try {
-        logger.info('[WriteDirectory] Parsing LLM response as JSON');
-        const jsonStr = result.replace(/```json|```/g, '').trim();
-        logger.debug(`[WriteDirectory] Cleaned JSON string: ${jsonStr.substring(0, 100)}...`);
-        
-        const parsed = JSON.parse(jsonStr);
-        logger.info('[WriteDirectory] JSON parsed successfully');
-        
-        const directory = DirectorySchema.parse(parsed);
-        logger.info(`[WriteDirectory] Directory schema validated: ${directory.title} with ${directory.directory.length} sections`);
-        
-        return this.createOutput(
-          JSON.stringify(directory),
-          'completed',
-          directory
-        );
-      } catch (e) {
-        logger.error('[WriteDirectory] Failed to parse directory structure JSON:', e);
-        logger.debug('[WriteDirectory] Original LLM response:', result);
-        
-        // 返回默认结构
-        const defaultDirectory: Directory = {
-          title: `Tutorial for ${topic}`,
-          directory: [
-            { "Introduction": ["Overview", "Prerequisites"] },
-            { "Main Content": ["Basic Concepts", "Advanced Usage"] },
-            { "Conclusion": ["Summary", "Next Steps"] }
-          ]
-        };
-        
-        logger.info('[WriteDirectory] Using default directory structure instead');
-        return this.createOutput(
-          JSON.stringify(defaultDirectory),
-          'completed',
-          defaultDirectory
-        );
-      }
+    const systemPrompt = `You are an expert technical writer and educator. Create a comprehensive tutorial on the given topic.
+The tutorial should be:
+1. Clear and well-structured
+2. Appropriate for the specified difficulty level
+3. Include practical examples and explanations
+4. Follow the specified format
+5. Include exercises if requested
+6. Target the specified audience
+
+Provide your tutorial in a structured JSON format matching the Tutorial interface.`;
+
+    try {
+      const tutorialResponse = await this.llm.chat(systemPrompt + "\n\nTutorial request: " + JSON.stringify(config));
+      const tutorial = JSON.parse(tutorialResponse);
+
+      // Validate and ensure all required fields are present
+      return {
+        title: tutorial.title || config.topic,
+        description: tutorial.description || '',
+        prerequisites: tutorial.prerequisites || [],
+        learning_objectives: tutorial.learning_objectives || [],
+        difficulty_level: tutorial.difficulty_level || config.level || TutorialLevel.BEGINNER,
+        format: tutorial.format || config.format || TutorialFormat.STEP_BY_STEP,
+        estimated_time: tutorial.estimated_time || '30 minutes',
+        sections: tutorial.sections || [],
+        summary: tutorial.summary || '',
+        further_reading: tutorial.further_reading,
+        keywords: tutorial.keywords || []
+      };
     } catch (error) {
-      logger.error('[WriteDirectory] Error generating directory:', error);
-      if (error instanceof Error) {
-        await this.handleException(error);
-      }
-      return this.createOutput(`Failed to generate directory: ${error}`, 'failed');
+      logger.error('[WriteTutorial] Error generating tutorial:', error);
+      return this.createFallbackTutorial(config);
     }
   }
 
-  /**
-   * 生成目录结构的提示词
-   * @param topic 教程主题
-   * @returns 提示词
-   */
-  private generateDirectoryPrompt(topic: string): string {
-    const language = this.language === 'Chinese' ? '中文' : 'English';
-    return `请为主题"${topic}"创建一个完整的教程目录结构。目录应该结构清晰、内容全面、逻辑连贯。
-
-请使用以下JSON格式输出目录结构：
-{
-  "title": "教程标题",
-  "directory": [
-    {"第一章标题": ["1.1 小节标题", "1.2 小节标题", ...]},
-    {"第二章标题": ["2.1 小节标题", "2.2 小节标题", ...]},
-    ...
-  ]
-}
-
-请确保输出是有效的JSON格式，目录结构要反映${language}教程的完整性、系统性和专业性。`;
-  }
-}
-
-/**
- * 教程内容生成动作配置
- */
-export interface WriteContentConfig extends ActionConfig {
-  language?: string;
-  directory: Record<string, string[]>;
-}
-
-/**
- * 教程内容生成动作
- */
-export class WriteContent extends BaseAction {
-  language: string;
-  directory: Record<string, string[]>;
-
-  constructor(config: WriteContentConfig) {
-    super({
-      ...config,
-      name: 'WriteContent',
-    });
-    this.language = config.language || 'Chinese';
-    this.directory = config.directory;
-    
-    const sectionTitle = Object.keys(this.directory)[0];
-    const subsections = this.directory[sectionTitle];
-    logger.info(`[WriteContent] Initialized for section "${sectionTitle}" with ${subsections.length} subsections`);
+  private createFallbackTutorial(config: WriteTutorialConfig): Tutorial {
+    return {
+      title: config.topic,
+      description: 'A basic guide to understanding ' + config.topic,
+      prerequisites: [],
+      learning_objectives: ['Understand the basics of ' + config.topic],
+      difficulty_level: config.level || TutorialLevel.BEGINNER,
+      format: config.format || TutorialFormat.STEP_BY_STEP,
+      estimated_time: '30 minutes',
+      sections: [{
+        title: 'Introduction',
+        content: 'This is a basic introduction to ' + config.topic,
+        key_points: ['Basic understanding of ' + config.topic]
+      }],
+      summary: 'This tutorial covers the basics of ' + config.topic,
+      keywords: [config.topic]
+    };
   }
 
-  /**
-   * 执行动作，生成教程内容
-   */
-  async run(): Promise<ActionOutput> {
-    try {
-      logger.info('[WriteContent] Starting run() method');
-      
-      const topic = this.getArg<string>('topic') || '';
-      logger.info(`[WriteContent] Topic: "${topic}"`);
-      
-      if (!topic) {
-        logger.warn('[WriteContent] Topic is required but not provided');
-        return this.createOutput('Topic is required', 'failed');
-      }
+  private formatTutorial(tutorial: Tutorial): string {
+    return `# ${tutorial.title}
 
-      const sectionTitle = Object.keys(this.directory)[0];
-      logger.info(`[WriteContent] Generating content for section: "${sectionTitle}"`);
-      
-      const prompt = this.generateContentPrompt(topic);
-      logger.info(`[WriteContent] Generated prompt (${prompt.length} characters)`);
-      logger.info('[WriteContent] Calling LLM to generate content');
-      
-      const result = await this.llm.generate(prompt);
-      logger.info(`[WriteContent] Received response from LLM (${result.length} characters)`);
-      
-      return this.createOutput(result.trim(), 'completed');
-    } catch (error) {
-      logger.error('[WriteContent] Error generating content:', error);
-      if (error instanceof Error) {
-        await this.handleException(error);
-      }
-      return this.createOutput(`Failed to generate content: ${error}`, 'failed');
+${tutorial.description}
+
+## Overview
+- Level: ${tutorial.difficulty_level}
+- Format: ${tutorial.format}
+- Estimated Time: ${tutorial.estimated_time}
+
+## Prerequisites
+${tutorial.prerequisites.map(prereq => `- ${prereq}`).join('\n')}
+
+## Learning Objectives
+${tutorial.learning_objectives.map(obj => `- ${obj}`).join('\n')}
+
+${tutorial.sections.map(section => `
+## ${section.title}
+
+${section.content}
+
+${section.code_examples ? `### Examples
+\`\`\`
+${section.code_examples.join('\n\n')}
+\`\`\`
+` : ''}
+
+${section.key_points ? `### Key Points
+${section.key_points.map(point => `- ${point}`).join('\n')}
+` : ''}
+
+${section.exercises ? `### Exercises
+${section.exercises.map(exercise => `
+#### Exercise
+${exercise.description}
+
+${exercise.solution ? `<details>
+<summary>Solution</summary>
+
+${exercise.solution}
+</details>` : ''}`).join('\n')}
+` : ''}`).join('\n')}
+
+## Summary
+${tutorial.summary}
+
+${tutorial.further_reading ? `## Further Reading
+${tutorial.further_reading.map(resource => `- ${resource}`).join('\n')}` : ''}
+
+## Keywords
+${tutorial.keywords.join(', ')}`;
+  }
+
+  public async run(): Promise<ActionOutput> {
+    const messages = this.context.memory.getMessages();
+    if (messages.length === 0) {
+      return {
+        status: 'failed',
+        content: 'No messages available for tutorial generation'
+      };
     }
-  }
 
-  /**
-   * 生成内容的提示词
-   * @param topic 教程主题
-   * @returns 提示词
-   */
-  private generateContentPrompt(topic: string): string {
-    const language = this.language === 'Chinese' ? '中文' : 'English';
-    const sectionTitle = Object.keys(this.directory)[0];
-    const subsections = this.directory[sectionTitle];
-    
-    return `请为主题"${topic}"下的"${sectionTitle}"章节编写详细内容。请包含以下小节：${subsections.join('、')}。
+    const lastMessage = messages[messages.length - 1];
+    const config: WriteTutorialConfig = {
+      topic: lastMessage.content,
+      level: this.args?.level || TutorialLevel.BEGINNER,
+      format: this.args?.format || TutorialFormat.STEP_BY_STEP,
+      include_exercises: this.args?.include_exercises || false,
+      target_audience: this.args?.target_audience || 'general',
+      max_length: this.args?.max_length || 5000,
+      focus_areas: this.args?.focus_areas || []
+    };
 
-要求：
-1. 使用${language}编写
-2. 严格遵循Markdown语法，布局整洁规范
-3. 内容应该专业、详细、通俗易懂
-4. 提供实用的信息和示例
-5. 每个小节都应该有适当的标题（使用## 和 ###）
-6. 总字数应该在1000-2000字之间
+    const tutorial = await this.generateTutorial(config);
+    const formattedTutorial = this.formatTutorial(tutorial);
 
-请直接输出Markdown内容，不需要有额外的注释。`;
+    return {
+      status: 'completed',
+      content: formattedTutorial
+    };
   }
 } 

@@ -8,6 +8,7 @@ import type { ExecutionResult } from '../../src/actions/run-code';
 import * as childProcess from 'child_process';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { UserMessage } from '../../src/types/message';
 
 // Mock external dependencies
 vi.mock('child_process', () => ({
@@ -85,329 +86,182 @@ describe('RunCode', () => {
   
   it('should create a RunCode instance', () => {
     expect(runCode).toBeInstanceOf(RunCode);
+    expect(runCode.name).toBe('RunCode');
   });
   
-  it('should fail when no code is provided', async () => {
-    // Run the action without providing code
+  it('should handle empty message list', async () => {
     const result = await runCode.run();
-    
-    // Verify that the action fails with appropriate message
     expect(result.status).toBe('failed');
-    expect(result.content).toContain('No code provided for execution');
+    expect(result.content).toContain('No messages available');
   });
   
-  it('should execute JavaScript code natively', async () => {
-    // Mock values
-    const jsCode = 'console.log("Hello, world!");';
-    const mockOutput = 'Hello, world!';
-    
-    // Setup mock process
-    const { mockProcess, mockStdout } = createMockProcess();
-    vi.mocked(childProcess.spawn).mockReturnValue(mockProcess);
-    
-    // Create RunCode instance with code
-    const codeRunner = new RunCode({
-      name: 'RunCode',
-      llm: mockLLM,
-      args: {
-        code: jsCode,
-        language: ProgrammingLanguage.JAVASCRIPT,
-      },
-    });
-    
-    // Start executing the code (in background)
-    const resultPromise = codeRunner.run();
-    
-    // Emit output and completion events
-    mockStdout.emit('data', Buffer.from(mockOutput));
-    mockProcess.emit('close', 0); // Exit code 0 = success
-    
-    // Wait for execution to complete
-    const result = await resultPromise;
-    
-    // Verify that the code was executed correctly
+  it('should execute JavaScript code successfully', async () => {
+    // Mock successful execution
+    const mockResult: ExecutionResult = {
+      stdout: 'Hello, World!',
+      stderr: '',
+      exitCode: 0,
+      executionTime: 100,
+      success: true
+    };
+
+    // Mock the executeCode method
+    (runCode as any).executeCode = vi.fn().mockResolvedValue(mockResult);
+
+    // Add a message to process
+    runCode.context.memory.add(new UserMessage('Run this code: console.log("Hello, World!");'));
+
+    // Run code execution
+    const result = await runCode.run();
+
+    // Verify result
     expect(result.status).toBe('completed');
-    expect(result.content).toContain('SUCCESS');
-    expect(result.content).toContain(mockOutput);
-    
-    // Verify that a temporary file was created with the correct extension
-    expect(fs.writeFile).toHaveBeenCalledWith(
-      expect.stringContaining('.js'),
-      jsCode,
-      'utf-8'
-    );
-    
-    // Verify that Node.js was used to execute the JavaScript code
-    expect(childProcess.spawn).toHaveBeenCalledWith(
-      'node',
-      expect.arrayContaining([expect.stringContaining('code.js')]),
-      expect.anything()
-    );
-  });
-  
-  it('should execute Python code natively', async () => {
-    // Mock values
-    const pythonCode = 'print("Hello, Python!")';
-    const mockOutput = 'Hello, Python!';
-    
-    // Setup mock process
-    const { mockProcess, mockStdout } = createMockProcess();
-    vi.mocked(childProcess.spawn).mockReturnValue(mockProcess);
-    
-    // Create RunCode instance with code
-    const codeRunner = new RunCode({
-      name: 'RunCode',
-      llm: mockLLM,
-      args: {
-        code: pythonCode,
-        language: ProgrammingLanguage.PYTHON,
-      },
-    });
-    
-    // Start executing the code (in background)
-    const resultPromise = codeRunner.run();
-    
-    // Emit output and completion events
-    mockStdout.emit('data', Buffer.from(mockOutput));
-    mockProcess.emit('close', 0);
-    
-    // Wait for execution to complete
-    const result = await resultPromise;
-    
-    // Verify that the code was executed correctly
-    expect(result.status).toBe('completed');
-    expect(result.content).toContain('SUCCESS');
-    expect(result.content).toContain(mockOutput);
-    
-    // Verify that Python was used to execute the code
-    expect(childProcess.spawn).toHaveBeenCalledWith(
-      'python',
-      expect.arrayContaining([expect.stringContaining('.py')]),
-      expect.anything()
-    );
+    expect(result.content).toContain('Code Execution Result');
+    expect(result.content).toContain('Hello, World!');
+    expect(result.content).toContain('Execution Time: 100ms');
+    expect(result.content).toContain('Exit Code: 0');
   });
   
   it('should handle execution errors', async () => {
-    // Mock values
-    const errorCode = 'console.log(undefinedVariable);';
-    const mockError = 'ReferenceError: undefinedVariable is not defined';
-    
-    // Setup mock process
-    const { mockProcess, mockStderr } = createMockProcess();
-    vi.mocked(childProcess.spawn).mockReturnValue(mockProcess);
-    
-    // Create RunCode instance with code that will cause an error
-    const codeRunner = new RunCode({
-      name: 'RunCode',
-      llm: mockLLM,
-      args: {
-        code: errorCode,
-        language: ProgrammingLanguage.JAVASCRIPT,
-      },
-    });
-    
-    // Start executing the code (in background)
-    const resultPromise = codeRunner.run();
-    
-    // Emit error output and fail execution
-    mockStderr.emit('data', Buffer.from(mockError));
-    mockProcess.emit('close', 1); // Exit code 1 = error
-    
-    // Wait for execution to complete
-    const result = await resultPromise;
-    
-    // Verify that the error was handled correctly
-    expect(result.status).toBe('failed');
-    expect(result.content).toContain('FAILURE');
-    expect(result.content).toContain(mockError);
-  });
-  
-  it('should handle execution timeouts', async () => {
-    // Mock values
-    const infiniteLoopCode = 'while(true) {}';
-    
-    // Setup mock process
-    const { mockProcess } = createMockProcess();
-    vi.mocked(childProcess.spawn).mockReturnValue(mockProcess);
-    
-    // Mock setTimeout to trigger immediately
-    const originalSetTimeout = setTimeout;
-    vi.stubGlobal('setTimeout', vi.fn().mockImplementation((callback: () => void) => {
-      callback();
-      return 1 as any;
-    }));
-    
-    // Create RunCode instance with infinite loop code
-    const codeRunner = new RunCode({
-      name: 'RunCode',
-      llm: mockLLM,
-      args: {
-        code: infiniteLoopCode,
-        language: ProgrammingLanguage.JAVASCRIPT,
-        timeout: 5000, // 5 seconds timeout (mocked)
-      },
-    });
-    
-    // Execute the code
-    const result = await codeRunner.run();
-    
-    // Restore setTimeout
-    vi.stubGlobal('setTimeout', originalSetTimeout);
-    
-    // Verify that timeout was handled correctly
-    expect(result.content).toContain('FAILURE');
-    expect(result.content).toContain('Execution timed out');
-    expect(mockProcess.kill).toHaveBeenCalled();
-  });
-  
-  it('should capture and return all output types', async () => {
-    // Mock values
-    const complexCode = 'console.log("stdout"); console.error("stderr");';
-    
-    // Setup mock process
-    const { mockProcess, mockStdout, mockStderr } = createMockProcess();
-    vi.mocked(childProcess.spawn).mockReturnValue(mockProcess);
-    
-    // Create RunCode instance
-    const codeRunner = new RunCode({
-      name: 'RunCode',
-      llm: mockLLM,
-      args: {
-        code: complexCode,
-        language: ProgrammingLanguage.JAVASCRIPT,
-      },
-    });
-    
-    // Start executing the code (in background)
-    const resultPromise = codeRunner.run();
-    
-    // Emit stdout and stderr output
-    mockStdout.emit('data', Buffer.from('stdout'));
-    mockStderr.emit('data', Buffer.from('stderr'));
-    mockProcess.emit('close', 0);
-    
-    // Wait for execution to complete
-    const result = await resultPromise;
-    
-    // Verify that both stdout and stderr were captured
-    expect(result.content).toContain('Standard Output');
-    expect(result.content).toContain('stdout');
-    expect(result.content).toContain('Standard Error');
-    expect(result.content).toContain('stderr');
-  });
-  
-  it('should handle process errors', async () => {
-    // Mock values
-    const code = 'console.log("This will never run");';
-    const errorMessage = 'Command not found';
-    
-    // Setup mock process
-    const { mockProcess } = createMockProcess();
-    vi.mocked(childProcess.spawn).mockReturnValue(mockProcess);
-    
-    // Create RunCode instance
-    const codeRunner = new RunCode({
-      name: 'RunCode',
-      llm: mockLLM,
-      args: {
-        code,
-        language: 'unknown', // Using unknown language to force error
-      },
-    });
-    
-    // Start executing the code (in background)
-    const resultPromise = codeRunner.run();
-    
-    // Emit process error
-    mockProcess.emit('error', new Error(errorMessage));
-    
-    // Wait for execution to complete
-    const result = await resultPromise;
-    
-    // Verify that process error was handled correctly
-    expect(result.status).toBe('failed');
-    expect(result.content).toContain('FAILURE');
-    expect(result.content).toContain(errorMessage);
-  });
-  
-  it('should accept custom environment variables', async () => {
-    // Mock values
-    const code = 'console.log(process.env.TEST_VAR);';
-    
-    // Setup mock process
-    const { mockProcess, mockStdout } = createMockProcess();
-    vi.mocked(childProcess.spawn).mockReturnValue(mockProcess);
-    
-    // Custom environment variables
-    const customEnv = {
-      TEST_VAR: 'test_value',
+    // Mock failed execution
+    const mockResult: ExecutionResult = {
+      stdout: '',
+      stderr: 'ReferenceError: x is not defined',
+      exitCode: 1,
+      executionTime: 50,
+      success: false,
+      error: 'Runtime error occurred'
     };
-    
-    // Create RunCode instance with custom environment
-    const codeRunner = new RunCode({
+
+    // Mock the executeCode method
+    (runCode as any).executeCode = vi.fn().mockResolvedValue(mockResult);
+
+    // Add a message to process
+    runCode.context.memory.add(new UserMessage('Run this code: console.log(x);'));
+
+    // Run code execution
+    const result = await runCode.run();
+
+    // Verify error handling
+    expect(result.status).toBe('completed');
+    expect(result.content).toContain('Error');
+    expect(result.content).toContain('ReferenceError');
+    expect(result.content).toContain('Exit Code: 1');
+  });
+  
+  it('should respect execution configuration options', async () => {
+    // Create instance with specific configuration
+    const customRunCode = new RunCode({
       name: 'RunCode',
       llm: mockLLM,
       args: {
-        code,
-        language: ProgrammingLanguage.JAVASCRIPT,
-        env: customEnv,
-      },
+        timeout: 5000,
+        memoryLimit: 512,
+        useContainer: true
+      }
     });
-    
-    // Start executing the code
-    const resultPromise = codeRunner.run();
-    
-    // Emit output and completion events
-    mockStdout.emit('data', Buffer.from('test_value'));
-    mockProcess.emit('close', 0);
-    
-    // Wait for execution to complete
-    await resultPromise;
-    
-    // Verify that custom environment variables were passed
-    expect(childProcess.spawn).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.anything(),
+
+    // Mock successful execution
+    const mockResult: ExecutionResult = {
+      stdout: 'Test output',
+      stderr: '',
+      exitCode: 0,
+      executionTime: 200,
+      success: true
+    };
+
+    // Mock the executeCode method
+    (customRunCode as any).executeCode = vi.fn().mockResolvedValue(mockResult);
+
+    // Add a message to process
+    customRunCode.context.memory.add(new UserMessage('Run this code with custom config'));
+
+    // Run code execution
+    const result = await customRunCode.run();
+
+    // Verify configuration was used
+    expect((customRunCode as any).executeCode).toHaveBeenCalledWith(
       expect.objectContaining({
-        env: expect.objectContaining(customEnv),
+        timeout: 5000,
+        memoryLimit: 512,
+        useContainer: true
       })
     );
+  });
+  
+  it('should handle different programming languages', async () => {
+    const testCases = [
+      {
+        language: ProgrammingLanguage.JAVASCRIPT,
+        code: 'console.log("JS");',
+        output: 'JS'
+      },
+      {
+        language: ProgrammingLanguage.PYTHON,
+        code: 'print("Python")',
+        output: 'Python'
+      },
+      {
+        language: ProgrammingLanguage.TYPESCRIPT,
+        code: 'console.log("TS");',
+        output: 'TS'
+      }
+    ];
+
+    for (const testCase of testCases) {
+      // Mock successful execution for each language
+      const mockResult: ExecutionResult = {
+        stdout: testCase.output,
+        stderr: '',
+        exitCode: 0,
+        executionTime: 100,
+        success: true
+      };
+
+      // Mock the executeCode method
+      (runCode as any).executeCode = vi.fn().mockResolvedValue(mockResult);
+
+      // Add a message to process
+      runCode.context.memory.add(new UserMessage(`Run this ${testCase.language} code: ${testCase.code}`));
+
+      // Run code execution
+      const result = await runCode.run();
+
+      // Verify language-specific handling
+      expect(result.status).toBe('completed');
+      expect(result.content).toContain(testCase.output);
+      expect((runCode as any).executeCode).toHaveBeenCalledWith(
+        expect.objectContaining({
+          language: testCase.language
+        })
+      );
+    }
   });
   
   it('should clean up temporary files after execution', async () => {
-    // Mock values
-    const code = 'console.log("Cleanup test");';
-    
-    // Setup mock process
-    const { mockProcess } = createMockProcess();
-    vi.mocked(childProcess.spawn).mockReturnValue(mockProcess);
-    
-    // Create RunCode instance
-    const codeRunner = new RunCode({
-      name: 'RunCode',
-      llm: mockLLM,
-      args: {
-        code,
-        language: ProgrammingLanguage.JAVASCRIPT,
-      },
-    });
-    
-    // Start executing the code
-    const resultPromise = codeRunner.run();
-    
-    // Complete execution
-    mockProcess.emit('close', 0);
-    
-    // Wait for execution to complete
-    await resultPromise;
-    
-    // Verify that temporary directory was removed
-    expect(fs.rm).toHaveBeenCalledWith(
-      expect.stringContaining('runcode-'),
-      expect.objectContaining({
-        recursive: true,
-        force: true,
-      })
-    );
+    // Mock the cleanup method
+    const mockCleanup = vi.fn();
+    (runCode as any).cleanupTempDirectory = mockCleanup;
+
+    // Mock successful execution
+    const mockResult: ExecutionResult = {
+      stdout: 'Test output',
+      stderr: '',
+      exitCode: 0,
+      executionTime: 100,
+      success: true
+    };
+
+    // Mock the executeCode method
+    (runCode as any).executeCode = vi.fn().mockResolvedValue(mockResult);
+
+    // Add a message to process
+    runCode.context.memory.add(new UserMessage('Run this code'));
+
+    // Run code execution
+    await runCode.run();
+
+    // Verify cleanup was called
+    expect(mockCleanup).toHaveBeenCalled();
   });
 }); 

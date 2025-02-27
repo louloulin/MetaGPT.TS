@@ -11,4 +11,6 @@ export { DataInterpreter } from './data-interpreter';
 export { Architect } from './architect';
 export { QAEngineer } from './qa-engineer';
 export { Researcher } from './researcher';
-export { Searcher } from './searcher'; 
+export { Searcher } from './searcher';
+export { Teacher } from './teacher';
+export { Assistant } from './assistant'; 

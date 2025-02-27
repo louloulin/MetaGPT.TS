@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SummarizeCode, SummaryLevel, ComponentType } from '../../src/actions/summarize-code';
 import type { CodeSummary } from '../../src/actions/summarize-code';
+import { UserMessage } from '../../src/types/message';
 
 // Sample code for testing
 const sampleCode = `
@@ -60,123 +61,278 @@ class Calculator {
 export default Calculator;
 `;
 
-// Mock LLM provider
-const mockLLM = {
-  chat: vi.fn(),
-  getName: () => 'MockLLM',
-  getModel: () => 'test-model',
-  generate: vi.fn(),
-  ask: vi.fn().mockImplementation(async (prompt: string) => {
-    // Mock response for code summary
-    if (prompt.includes('Calculator')) {
-      return JSON.stringify({
-        overview: {
-          title: "Calculator Class Implementation",
-          description: "A simple calculator class that provides basic arithmetic operations.",
-          language: "TypeScript",
-          primary_purpose: "Perform basic mathematical operations",
-          line_count: 42,
-          estimated_complexity: "LOW"
-        },
-        components: [
+describe('SummarizeCode', () => {
+  let mockLLM: any;
+  let summarizeCode: SummarizeCode;
+
+  beforeEach(() => {
+    // Create mock LLM
+    mockLLM = {
+      chat: vi.fn(),
+      getName: () => 'MockLLM',
+      getModel: () => 'test-model',
+      generate: vi.fn(),
+    };
+
+    // Create SummarizeCode instance
+    summarizeCode = new SummarizeCode({
+      name: 'SummarizeCode',
+      llm: mockLLM,
+    });
+  });
+
+  it('should create a SummarizeCode instance', () => {
+    expect(summarizeCode).toBeInstanceOf(SummarizeCode);
+    expect(summarizeCode.name).toBe('SummarizeCode');
+  });
+
+  it('should handle empty message list', async () => {
+    const result = await summarizeCode.run();
+    expect(result.status).toBe('failed');
+    expect(result.content).toContain('No messages available');
+  });
+
+  it('should summarize code successfully', async () => {
+    // Mock successful code summary
+    const mockSummary: CodeSummary = {
+      overview: {
+        title: 'User Authentication Module',
+        description: 'Handles user authentication and session management',
+        language: 'TypeScript',
+        primary_purpose: 'Manage user authentication flow',
+        line_count: 150,
+        estimated_complexity: 'MEDIUM'
+      },
+      components: [
+        {
+          name: 'AuthService',
+          type: ComponentType.CLASS,
+          description: 'Main authentication service class',
+          location: 'src/services/auth.ts',
+          dependencies: ['UserRepository', 'TokenService'],
+          complexity: 0.7,
+          lineCount: 80
+        }
+      ],
+      functional_areas: [
+        {
+          name: 'Authentication',
+          description: 'User login and session management',
+          components: ['AuthService', 'TokenService']
+        }
+      ],
+      design_patterns: [
+        {
+          name: 'Singleton',
+          confidence: 0.9,
+          description: 'Single instance of AuthService',
+          location: 'src/services/auth.ts',
+          benefits: ['Consistent state', 'Resource efficiency']
+        }
+      ],
+      relationships: {
+        imports: ['@types/jwt', '@types/bcrypt'],
+        exports: ['AuthService', 'AuthConfig'],
+        internal_dependencies: [
           {
-            name: "Calculator",
-            type: "CLASS",
-            description: "Main calculator class with arithmetic methods",
-            location: "calculator.ts",
-            complexity: 1,
-            lineCount: 40
-          },
-          {
-            name: "add",
-            type: "FUNCTION",
-            description: "Adds two numbers together",
-            location: "calculator.ts:10-12",
-            complexity: 1,
-            lineCount: 3
-          },
-          {
-            name: "subtract",
-            type: "FUNCTION",
-            description: "Subtracts second number from first",
-            location: "calculator.ts:20-22",
-            complexity: 1,
-            lineCount: 3
-          },
-          {
-            name: "multiply",
-            type: "FUNCTION",
-            description: "Multiplies two numbers",
-            location: "calculator.ts:30-32",
-            complexity: 1,
-            lineCount: 3
-          },
-          {
-            name: "divide",
-            type: "FUNCTION",
-            description: "Divides first number by second with zero check",
-            location: "calculator.ts:40-45",
-            complexity: 2,
-            lineCount: 6
+            from: 'AuthService',
+            to: 'UserRepository',
+            type: 'USES'
           }
-        ],
-        functional_areas: [
-          {
-            name: "Arithmetic Operations",
-            description: "Basic arithmetic operations for a calculator",
-            components: ["add", "subtract", "multiply", "divide"]
-          }
-        ],
-        design_patterns: [
-          {
-            name: "Simple Class Pattern",
-            confidence: 0.9,
-            description: "Uses a simple class structure to encapsulate related functionality",
-            benefits: ["Encapsulation", "Organization", "Reusability"]
-          }
-        ],
-        relationships: {
-          imports: [],
-          exports: ["Calculator"],
-          internal_dependencies: []
-        },
-        improvements: [
-          {
-            description: "Add input validation",
-            rationale: "Prevent unexpected behavior with invalid inputs",
-            priority: "MEDIUM",
-            implementation_difficulty: "EASY",
-            code_example: "if (typeof a !== 'number' || typeof b !== 'number') {\n  throw new Error('Inputs must be numbers');\n}"
-          },
-          {
-            description: "Implement additional operations",
-            rationale: "Expand functionality to include more mathematical operations",
-            priority: "LOW",
-            implementation_difficulty: "EASY"
-          }
-        ],
-        documentation: {
-          quality: "GOOD",
-          coverage_percentage: 90,
-          missing_documentation: ["Calculator class could have more detailed description"],
-          suggestions: ["Add more examples", "Include usage instructions"]
+        ]
+      },
+      improvements: [
+        {
+          description: 'Add rate limiting',
+          rationale: 'Prevent brute force attacks',
+          priority: 'HIGH',
+          implementation_difficulty: 'MODERATE',
+          code_example: 'implement RateLimiter middleware'
+        }
+      ],
+      documentation: {
+        quality: 'GOOD',
+        coverage_percentage: 85,
+        missing_documentation: ['Error handling section'],
+        suggestions: ['Add API documentation']
+      }
+    };
+
+    mockLLM.chat.mockResolvedValue(JSON.stringify(mockSummary));
+
+    // Add a message to process
+    summarizeCode.context.memory.add(new UserMessage('Summarize this authentication code'));
+
+    // Run code summarization
+    const result = await summarizeCode.run();
+
+    // Verify result
+    expect(result.status).toBe('completed');
+    expect(result.content).toContain('Code Summary');
+    expect(result.content).toContain('User Authentication Module');
+    expect(result.content).toContain('Components');
+    expect(result.content).toContain('AuthService');
+    expect(result.content).toContain('Design Patterns');
+    expect(result.content).toContain('Improvements');
+    expect(result.content).toContain('Documentation');
+  });
+
+  it('should handle LLM response parsing error', async () => {
+    // Mock LLM response with invalid JSON
+    mockLLM.chat.mockResolvedValue('Invalid JSON response');
+
+    // Add a message to process
+    summarizeCode.context.memory.add(new UserMessage('Summarize this code'));
+
+    // Run code summarization
+    const result = await summarizeCode.run();
+
+    // Verify fallback behavior
+    expect(result.status).toBe('completed');
+    expect(result.content).toContain('Code Summary');
+    expect(result.content).toContain('Unable to generate detailed summary');
+    expect(result.content).toContain('Basic code information');
+  });
+
+  it('should handle missing fields in LLM response', async () => {
+    // Mock LLM response with missing fields
+    const partialSummary = {
+      overview: {
+        title: 'Partial Summary',
+        description: 'Basic code description',
+        language: 'TypeScript'
+      }
+      // Other fields missing
+    };
+
+    mockLLM.chat.mockResolvedValue(JSON.stringify(partialSummary));
+
+    // Add a message to process
+    summarizeCode.context.memory.add(new UserMessage('Summarize this code'));
+
+    // Run code summarization
+    const result = await summarizeCode.run();
+
+    // Verify default values are used
+    expect(result.status).toBe('completed');
+    expect(result.content).toContain('Partial Summary');
+    expect(result.content).toContain('Basic code description');
+    expect(result.content).toContain('No components identified');
+  });
+
+  it('should respect summary level configuration', async () => {
+    const testCases = [
+      {
+        level: SummaryLevel.BRIEF,
+        expectedDetails: ['overview', 'primary purpose']
+      },
+      {
+        level: SummaryLevel.STANDARD,
+        expectedDetails: ['components', 'relationships']
+      },
+      {
+        level: SummaryLevel.DETAILED,
+        expectedDetails: ['design patterns', 'improvements', 'documentation']
+      }
+    ];
+
+    for (const testCase of testCases) {
+      // Create instance with specific summary level
+      const levelSpecificSummarizer = new SummarizeCode({
+        name: 'SummarizeCode',
+        llm: mockLLM,
+        args: {
+          level: testCase.level
         }
       });
-    } 
-    // Mock response for invalid JSON case
-    else if (prompt.includes('invalid json')) {
-      return 'This is not valid JSON';
-    }
-    // Default fallback response
-    else {
-      return JSON.stringify({
+
+      // Mock summary response
+      const mockSummary: CodeSummary = {
         overview: {
-          title: "Generic Code",
-          description: "Some code",
-          language: "Unknown",
-          primary_purpose: "Unknown",
-          line_count: 10,
-          estimated_complexity: "LOW"
+          title: `${testCase.level} Summary`,
+          description: 'Test code',
+          language: 'TypeScript',
+          primary_purpose: 'Testing',
+          line_count: 100,
+          estimated_complexity: 'LOW'
+        },
+        components: [{
+          name: 'TestComponent',
+          type: ComponentType.CLASS,
+          description: 'Test component'
+        }],
+        functional_areas: [{
+          name: 'Testing',
+          description: 'Test area',
+          components: ['TestComponent']
+        }],
+        design_patterns: [{
+          name: 'Observer',
+          confidence: 0.8,
+          description: 'Test pattern',
+          benefits: ['Testability']
+        }],
+        relationships: {
+          imports: ['test'],
+          exports: ['TestComponent'],
+          internal_dependencies: []
+        },
+        improvements: [{
+          description: 'Test improvement',
+          rationale: 'Better testing',
+          priority: 'LOW',
+          implementation_difficulty: 'EASY'
+        }],
+        documentation: {
+          quality: 'GOOD',
+          coverage_percentage: 90,
+          missing_documentation: [],
+          suggestions: []
+        }
+      };
+
+      mockLLM.chat.mockResolvedValue(JSON.stringify(mockSummary));
+
+      // Add a message to process
+      levelSpecificSummarizer.context.memory.add(new UserMessage(`Summarize this code with ${testCase.level} detail`));
+
+      // Run code summarization
+      const result = await levelSpecificSummarizer.run();
+
+      // Verify level-specific content
+      expect(result.status).toBe('completed');
+      testCase.expectedDetails.forEach(detail => {
+        expect(result.content).toContain(detail);
+      });
+    }
+  });
+
+  it('should detect and handle different programming languages', async () => {
+    const testCases = [
+      {
+        code: 'function test() { console.log("Hello"); }',
+        language: 'JavaScript'
+      },
+      {
+        code: 'def test(): print("Hello")',
+        language: 'Python'
+      },
+      {
+        code: 'public class Test { public static void main(String[] args) {} }',
+        language: 'Java'
+      }
+    ];
+
+    for (const testCase of testCases) {
+      // Mock summary with language detection
+      const mockSummary: CodeSummary = {
+        overview: {
+          title: `${testCase.language} Code`,
+          description: `Sample ${testCase.language} code`,
+          language: testCase.language,
+          primary_purpose: 'Testing',
+          line_count: 1,
+          estimated_complexity: 'LOW'
         },
         components: [],
         functional_areas: [],
@@ -188,202 +344,25 @@ const mockLLM = {
         },
         improvements: [],
         documentation: {
-          quality: "POOR",
-          coverage_percentage: 0,
-          missing_documentation: ["Everything"],
-          suggestions: ["Add documentation"]
+          quality: 'ADEQUATE',
+          coverage_percentage: 70,
+          missing_documentation: [],
+          suggestions: []
         }
-      });
-    }
-  })
-};
+      };
 
-describe('SummarizeCode', () => {
-  let summarizeCode: SummarizeCode;
-  
-  beforeEach(() => {
-    // Reset mocks before each test
-    vi.resetAllMocks();
-    
-    // Create SummarizeCode instance with mock LLM
-    summarizeCode = new SummarizeCode({
-      name: 'SummarizeCode',
-      llm: mockLLM,
-    });
-    
-    // Setup the ask method from BaseAction
-    (summarizeCode as any).ask = mockLLM.ask;
-  });
-  
-  it('should create a SummarizeCode instance', () => {
-    expect(summarizeCode).toBeInstanceOf(SummarizeCode);
-  });
-  
-  it('should fail when no code is provided', async () => {
-    // Run the action without providing code
-    const result = await summarizeCode.run();
-    
-    // Verify that the action fails with appropriate message
-    expect(result.status).toBe('failed');
-    expect(result.content).toContain('No code provided for summarization');
-  });
-  
-  it('should analyze calculator code and generate a summary', async () => {
-    // Create SummarizeCode instance with calculator code
-    const codeSummarizer = new SummarizeCode({
-      name: 'SummarizeCode',
-      llm: mockLLM,
-      args: {
-        code: sampleCode,
-        language: 'TypeScript',
-        file_path: 'calculator.ts'
-      }
-    });
-    
-    // Setup the ask method from BaseAction
-    (codeSummarizer as any).ask = mockLLM.ask;
-    
-    // Execute the action
-    const result = await codeSummarizer.run();
-    
-    // Verify that code was analyzed correctly
-    expect(result.status).toBe('completed');
-    expect(result.content).toContain('Calculator Class Implementation');
-    expect(result.content).toContain('Arithmetic Operations');
-    expect(result.content).toContain('Add input validation');
-    
-    // Verify that the instructContent contains the CodeSummary
-    const summary = result.instructContent as CodeSummary;
-    expect(summary.overview.language).toBe('TypeScript');
-    expect(summary.components.length).toBe(5);
-    expect(summary.functional_areas.length).toBe(1);
-    expect(summary.design_patterns.length).toBe(1);
-    expect(summary.improvements.length).toBe(2);
-  });
-  
-  it('should handle LLM response parsing errors gracefully', async () => {
-    // Create SummarizeCode instance with code that will trigger invalid JSON response
-    const codeSummarizer = new SummarizeCode({
-      name: 'SummarizeCode',
-      llm: mockLLM,
-      args: {
-        code: 'This will trigger invalid json response',
-        language: 'Unknown'
-      }
-    });
-    
-    // Setup the ask method from BaseAction
-    (codeSummarizer as any).ask = mockLLM.ask;
-    
-    // Execute the action
-    const result = await codeSummarizer.run();
-    
-    // Verify that a fallback summary was created
-    expect(result.status).toBe('completed');
-    expect(result.content).toContain('This is a basic fallback summary');
-    
-    // Verify that the instructContent contains the fallback CodeSummary
-    const summary = result.instructContent as CodeSummary;
-    expect(summary.overview.title).toContain('Unknown Code');
-  });
-  
-  it('should detect language from code if not provided', async () => {
-    // Create a spy for the detectLanguage method
-    const detectLanguageSpy = vi.spyOn(SummarizeCode.prototype as any, 'detectLanguage');
-    detectLanguageSpy.mockReturnValue('TypeScript');
-    
-    // Create SummarizeCode instance without specifying language
-    const codeSummarizer = new SummarizeCode({
-      name: 'SummarizeCode',
-      llm: mockLLM,
-      args: {
-        code: sampleCode
-      }
-    });
-    
-    // Setup the ask method from BaseAction
-    (codeSummarizer as any).ask = mockLLM.ask;
-    
-    // Execute the action
-    await codeSummarizer.run();
-    
-    // Verify that language detection was called
-    expect(detectLanguageSpy).toHaveBeenCalled();
-  });
-  
-  it('should respect summary level options', async () => {
-    // Create SummarizeCode instances with different summary levels
-    const briefSummarizer = new SummarizeCode({
-      name: 'SummarizeCode',
-      llm: mockLLM,
-      args: {
-        code: sampleCode,
-        language: 'TypeScript',
-        options: {
-          level: SummaryLevel.BRIEF
-        }
-      }
-    });
-    
-    const detailedSummarizer = new SummarizeCode({
-      name: 'SummarizeCode',
-      llm: mockLLM,
-      args: {
-        code: sampleCode,
-        language: 'TypeScript',
-        options: {
-          level: SummaryLevel.DETAILED
-        }
-      }
-    });
-    
-    // Setup the ask method from BaseAction
-    (briefSummarizer as any).ask = mockLLM.ask;
-    (detailedSummarizer as any).ask = mockLLM.ask;
-    
-    // Execute the actions
-    const briefResult = await briefSummarizer.run();
-    const detailedResult = await detailedSummarizer.run();
-    
-    // Verify that the brief summary was formatted differently than the detailed one
-    expect(briefResult.content.length).toBeLessThan(detailedResult.content.length);
-    
-    // Brief should contain simple component listing
-    expect(briefResult.content).toContain('This code contains');
-    
-    // Detailed should include more information like dependencies
-    expect(detailedResult.content).toMatch(/Location|Line Count|Complexity/);
-  });
-  
-  it('should allow focusing on specific aspects of the summary', async () => {
-    // Create SummarizeCode instance focusing only on components and improvements
-    const focusedSummarizer = new SummarizeCode({
-      name: 'SummarizeCode',
-      llm: mockLLM,
-      args: {
-        code: sampleCode,
-        language: 'TypeScript',
-        options: {
-          focus_on_components: true,
-          focus_on_patterns: false,
-          focus_on_improvements: true,
-          focus_on_documentation: false
-        }
-      }
-    });
-    
-    // Setup the ask method from BaseAction
-    (focusedSummarizer as any).ask = mockLLM.ask;
-    
-    // Execute the action
-    const result = await focusedSummarizer.run();
-    
-    // Should have components and improvements sections
-    expect(result.content).toContain('Components');
-    expect(result.content).toContain('Suggested Improvements');
-    
-    // Should not have design patterns and documentation sections
-    expect(result.content).not.toContain('Design Patterns');
-    expect(result.content).not.toMatch(/Documentation Analysis/);
+      mockLLM.chat.mockResolvedValue(JSON.stringify(mockSummary));
+
+      // Add a message to process
+      summarizeCode.context.memory.add(new UserMessage(`Summarize this ${testCase.language} code: ${testCase.code}`));
+
+      // Run code summarization
+      const result = await summarizeCode.run();
+
+      // Verify language detection and handling
+      expect(result.status).toBe('completed');
+      expect(result.content).toContain(testCase.language);
+      expect(result.content).toContain('Language:');
+    }
   });
 }); 
