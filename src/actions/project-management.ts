@@ -206,9 +206,9 @@ export class ProjectManagement extends BaseAction {
     
     try {
       // Create a prompt that includes the node key - this is important for MockLLM in tests
-      const prompt = `${node.instruction}\n\nContext:\n${context}\n\nProvide your response in the expected format. For reference, here's an example: ${JSON.stringify(node.example)}`;
+      const prompt = `${node.key}\n\n${node.instruction}\n\nContext:\n${context}\n\nProvide your response in the expected format. For reference, here's an example: ${JSON.stringify(node.example)}`;
       
-      // The node.key is what MockLLM uses to lookup responses
+      // Get response from LLM
       const content = await this.llm.generate(prompt);
       
       // Only attempt to parse JSON if the content might be JSON

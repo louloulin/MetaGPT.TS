@@ -234,7 +234,19 @@ export class MockLLM implements LLMProvider {
       });
     }
 
-    return 'Mock generation';
+    // If no specific response is found, try to find a response based on the instruction
+    const instructionMatch = prompt.match(/instruction:\s*"([^"]+)"/i);
+    if (instructionMatch) {
+      const instruction = instructionMatch[1];
+      for (const [key, response] of Object.entries(this.responses)) {
+        if (instruction.includes(key)) {
+          return response;
+        }
+      }
+    }
+
+    // Return empty array as JSON string for unknown prompts
+    return '[]';
   }
 
   /**
