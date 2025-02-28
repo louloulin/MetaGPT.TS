@@ -30,6 +30,9 @@ describe('ProjectManagement', () => {
         'Anything UNCLEAR': 'No unclear aspects at this time.'
       }
     });
+    
+    // Log the responses for debugging
+    console.log('Mock LLM responses:', mockLLM['responses']);
   });
 
   it('should initialize with correct properties', () => {
@@ -126,18 +129,15 @@ describe('ProjectManagement', () => {
   it('should handle parsing errors gracefully', async () => {
     // Create a mock LLM that returns invalid JSON for a specific node
     const invalidJsonMockLLM = new MockLLM({
+      // Set up the responses map - this is used by the MockLLM.generate() method
       responses: {
         'Required packages': 'This is not valid JSON',
         'Logic Analysis': 'Also not valid JSON',
-      },
-      generateFn: async (prompt: string) => {
-        if (prompt.includes('Required packages')) {
-          return 'This is not valid JSON';
-        }
-        if (prompt.includes('Logic Analysis')) {
-          return 'Also not valid JSON';
-        }
-        return '[]';
+        'Task list': '[]',
+        'Full API spec': '[]',
+        'Shared Knowledge': '[]',
+        'Anything UNCLEAR': '[]',
+        'Required Other language third-party packages': '[]'
       }
     });
     

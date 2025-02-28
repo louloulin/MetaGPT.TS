@@ -2,7 +2,7 @@
  * Unit tests for DesignAPI action
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { DesignAPI, DesignNodeType } from '../../src/actions/design-api';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -224,21 +224,39 @@ All requirements are clear now. We have enhanced the API with product management
 
 describe('DesignAPI', () => {
   let designAPI: DesignAPI;
-  
+  let mockLLM: {
+    chat: Mock;
+    getName: () => string;
+    getModel: () => string;
+    generate: Mock;
+  };
+
   beforeEach(() => {
-    // Reset mocks before each test
-    vi.resetAllMocks();
-    
-    // Create DesignAPI instance with mock LLM
+    // Mock fs module
+    vi.mock('fs/promises', () => ({
+      mkdir: vi.fn().mockResolvedValue(undefined),
+      writeFile: vi.fn().mockResolvedValue(undefined)
+    }));
+
+    // Create mock LLM with proper typing
+    mockLLM = {
+      chat: vi.fn().mockResolvedValue(mockNewAPIDesign),
+      getName: () => 'MockLLM',
+      getModel: () => 'test-model',
+      generate: vi.fn()
+    };
+
+    // Create DesignAPI instance
     designAPI = new DesignAPI({
-      name: 'DesignAPI',
-      llm: mockLLM,
+      name: 'TestDesignAPI',
+      llm: mockLLM
     });
-    
-    // Mock the ask method
-    (designAPI as any).ask = vi.fn();
   });
-  
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('should create a DesignAPI instance', () => {
     expect(designAPI).toBeInstanceOf(DesignAPI);
   });
@@ -271,12 +289,10 @@ describe('DesignAPI', () => {
   });
   
   it('should create a new API design', async () => {
-    // Mock the ask method to return the mock API design
-    (designAPI as any).ask = vi.fn().mockResolvedValue(mockNewAPIDesign);
-    
     // Set args for the action
     (designAPI as any).context.args = {
-      requirements: 'Create a RESTful API for user management with authentication.'
+      requirements: 'Create a RESTful API for user management with authentication.',
+      workdir: 'test-output'
     };
     
     // Execute the action
@@ -287,19 +303,20 @@ describe('DesignAPI', () => {
     expect(result.content).toBe(mockNewAPIDesign);
     
     // Verify the prompt used
-    expect((designAPI as any).ask).toHaveBeenCalledWith(expect.stringContaining('Create a comprehensive API design'));
-    expect((designAPI as any).ask).toHaveBeenCalledWith(expect.stringContaining('Create a RESTful API for user management with authentication'));
+    expect(mockLLM.chat).toHaveBeenCalledWith(expect.stringContaining('Create a comprehensive API design'));
+    expect(mockLLM.chat).toHaveBeenCalledWith(expect.stringContaining('Create a RESTful API for user management'));
   });
   
   it('should refine an existing API design', async () => {
-    // Mock the ask method to return the refined API design
-    (designAPI as any).ask = vi.fn().mockResolvedValue(mockRefinedAPIDesign);
-    
     // Set args for the action
     (designAPI as any).context.args = {
       requirements: 'Add product management features, implement caching and rate limiting.',
-      existing_design: mockNewAPIDesign
+      existing_design: mockNewAPIDesign,
+      workdir: 'test-output'
     };
+    
+    // Mock the LLM to return the refined design
+    mockLLM.chat.mockResolvedValueOnce(mockRefinedAPIDesign);
     
     // Execute the action
     const result = await designAPI.run();
@@ -309,23 +326,43 @@ describe('DesignAPI', () => {
     expect(result.content).toBe(mockRefinedAPIDesign);
     
     // Verify the prompt used
-    expect((designAPI as any).ask).toHaveBeenCalledWith(expect.stringContaining('refine the existing API design'));
-    expect((designAPI as any).ask).toHaveBeenCalledWith(expect.stringContaining('Add product management features'));
-    expect((designAPI as any).ask).toHaveBeenCalledWith(expect.stringContaining('LEGACY CONTENT'));
+    expect(mockLLM.chat).toHaveBeenCalledWith(expect.stringContaining('refine the existing API design'));
+    expect(mockLLM.chat).toHaveBeenCalledWith(expect.stringContaining('Add product management features'));
+    expect(mockLLM.chat).toHaveBeenCalledWith(expect.stringContaining('LEGACY CONTENT'));
   });
   
   it('should attempt to save design diagrams', async () => {
-    // Mock the ask method to return the mock API design
-    (designAPI as any).ask = vi.fn().mockResolvedValue(mockNewAPIDesign);
+    // Mock the ask method to return a design with mermaid diagrams
+    const mockDesignWithDiagrams = `
+      # API Design
+      
+      ## Class Diagram
+      \`\`\`mermaid
+      classDiagram
+        class User {
+          +String id
+          +String name
+        }
+      \`\`\`
+
+      ## Sequence Diagram
+      \`\`\`mermaid
+      sequenceDiagram
+        User->>API: Request
+        API->>Database: Query
+      \`\`\`
+    `;
+    
+    mockLLM.chat.mockResolvedValueOnce(mockDesignWithDiagrams);
     
     // Set args for the action
     (designAPI as any).context.args = {
       requirements: 'Create a RESTful API for user management with authentication.',
-      workdir: './test-output'
+      workdir: 'test-output'
     };
     
     // Execute the action
-    await designAPI.run();
+    const result = await designAPI.run();
     
     // Verify that directories were created
     expect(fs.mkdir).toHaveBeenCalledWith(
@@ -347,20 +384,36 @@ describe('DesignAPI', () => {
       expect.stringContaining('sequence_diagrams/sequence_diagram_'),
       expect.stringContaining('sequenceDiagram')
     );
+
+    // Verify the result
+    expect(result.status).toBe('completed');
+    expect(result.content).toBe(mockDesignWithDiagrams);
   });
   
   it('should handle errors when saving diagrams', async () => {
-    // Mock the ask method to return the mock API design
-    (designAPI as any).ask = vi.fn().mockResolvedValue(mockNewAPIDesign);
+    // Mock the ask method to return a design with mermaid diagrams
+    const mockDesignWithDiagrams = `
+      # API Design
+      
+      ## Class Diagram
+      \`\`\`mermaid
+      classDiagram
+        class User {
+          +String id
+          +String name
+        }
+      \`\`\`
+    `;
+    
+    mockLLM.chat.mockResolvedValueOnce(mockDesignWithDiagrams);
     
     // Make fs.mkdir throw an error
-    const mkdirMock = fs.mkdir as unknown as { mockRejectedValueOnce: (error: Error) => void };
-    mkdirMock.mockRejectedValueOnce(new Error('Directory creation failed'));
+    (fs.mkdir as vi.Mock).mockRejectedValueOnce(new Error('Directory creation failed'));
     
     // Set args for the action
     (designAPI as any).context.args = {
       requirements: 'Create a RESTful API for user management with authentication.',
-      workdir: './test-output'
+      workdir: 'test-output'
     };
     
     // Execute the action
@@ -368,6 +421,6 @@ describe('DesignAPI', () => {
     
     // Verify that the action still completes despite the error
     expect(result.status).toBe('completed');
-    expect(result.content).toBe(mockNewAPIDesign);
+    expect(result.content).toBe(mockDesignWithDiagrams);
   });
 }); 

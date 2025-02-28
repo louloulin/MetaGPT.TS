@@ -159,10 +159,10 @@ export class WriteRequirements extends BaseAction {
 
   private createFallbackDocument(prompt: string): RequirementsDocument {
     return {
-      project_name: this.args.project_name,
+      project_name: this.args.project_name || 'Test Project',
       version: '1.0.0',
       last_updated: new Date().toISOString(),
-      executive_summary: 'Basic requirements document generated due to an error',
+      executive_summary: `Basic requirements document for: ${prompt}`,
       scope: {
         included: ['Basic functionality'],
         excluded: ['Advanced features']
@@ -261,7 +261,7 @@ export class WriteRequirements extends BaseAction {
       output += '## Risks and Mitigations\n\n';
       doc.risks.forEach(risk => {
         output += `### Risk: ${risk.description}\n`;
-        output += `**Impact:** ${risk.impact}\n`;
+        output += `Impact: ${risk.impact}\n`;
         output += `**Mitigation:** ${risk.mitigation}\n\n`;
       });
     }

@@ -179,7 +179,7 @@ export class DocumentGeneration extends BaseAction {
       });
       
       // Format the document
-      const formattedDocument = this.formatDocument(result);
+      const formattedDocument = this.formatDocument(result, format);
       
       // Create appropriate output
       return this.createOutput(
@@ -218,29 +218,80 @@ export class DocumentGeneration extends BaseAction {
     // Create table of contents based on template sections or document type
     const toc = this.generateTableOfContents(config);
     
-    // Generate document content
-    const prompt = this.constructDocumentPrompt(config, fullMetadata, toc);
-    const response = await this.ask(prompt);
-    
     try {
+      // Generate document content
+      const prompt = this.constructDocumentPrompt(config, fullMetadata, toc);
+      const response = await this.ask(prompt);
+      
       // Parse the document content from the response
-      const result = JSON.parse(response) as Omit<DocumentGenerationResult, 'metadata' | 'type' | 'format'>;
+      let result;
+      try {
+        result = JSON.parse(response);
+      } catch (parseError) {
+        // If response is not JSON, treat it as direct content
+        result = {
+          title: config.title,
+          content: response,
+          sections: { 'Main Content': response },
+          toc: ['Main Content']
+        };
+      }
+      
+      // Validate required fields
+      if (!result.title || !result.content || !result.sections || !result.toc) {
+        throw new Error('Missing required fields in document generation response');
+      }
       
       // Create final document result
       const documentResult: DocumentGenerationResult = {
-        ...result,
+        title: result.title,
+        content: result.content,
+        type: config.type,
+        format: config.format || DocumentFormat.MARKDOWN,
+        metadata: fullMetadata,
+        sections: result.sections,
+        toc: result.toc,
+        keywords: result.keywords || [],
+        references: result.references || [],
+        file_path: config.output_file
+      };
+      
+      // Format the document content based on the requested format
+      documentResult.content = this.formatDocument(documentResult, documentResult.format);
+      
+      return documentResult;
+    } catch (error) {
+      logger.error(`[${this.name}] Error generating document: ${error}`);
+      
+      // Create a fallback document with error information
+      const fallbackResult = this.createFallbackDocument(config.title, error as Error);
+      
+      // Add required fields from config
+      return {
+        ...fallbackResult,
         type: config.type,
         format: config.format || DocumentFormat.MARKDOWN,
         metadata: fullMetadata,
         file_path: config.output_file
       };
-      
-      return documentResult;
-    } catch (error) {
-      logger.error(`[${this.name}] Error parsing document generation response:`, error);
-      
-      // Create a fallback document result
-      return this.createFallbackDocument(config, fullMetadata, error as Error);
+    }
+  }
+  
+  /**
+   * Gets required sections for a document type
+   * @param type Document type
+   * @returns Array of required section names
+   */
+  private getRequiredSections(type: DocumentType): string[] {
+    switch (type) {
+      case DocumentType.API_DOCUMENTATION:
+        return ['Introduction', 'Authentication', 'Endpoints'];
+      case DocumentType.USER_GUIDE:
+        return ['Introduction', 'Getting Started', 'Installation', 'Basic Usage'];
+      case DocumentType.TECHNICAL_SPECIFICATION:
+        return ['Overview', 'Architecture', 'Components'];
+      default:
+        return ['Introduction', 'Main Content'];
     }
   }
   
@@ -473,65 +524,59 @@ Provide your response as a JSON object with the following structure:
   
   /**
    * Creates a fallback document when the LLM response cannot be parsed
-   * @param config Document generation configuration
-   * @param metadata Document metadata
+   * @param title Document title
    * @param error The error that occurred
    * @returns A fallback document result
    */
-  private createFallbackDocument(
-    config: DocumentGenerationConfig,
-    metadata: DocumentMetadata,
-    error: Error
-  ): DocumentGenerationResult {
-    const toc = this.generateTableOfContents(config);
-    
+  private createFallbackDocument(title: string, error: Error): DocumentGenerationResult {
     return {
-      title: config.title,
-      content: `# ${config.title}\n\n**Error:** Unable to generate complete document. Please try again.\n\n## Error Details\n\n${error.message}`,
-      type: config.type,
-      format: config.format || DocumentFormat.MARKDOWN,
-      metadata,
+      title,
+      content: `# ${title}\n\n**Error:** Unable to generate complete document. Please try again.\n\n## Error Details\n${error.message}\n\n## Available Sections\n- Introduction\n- Main Content\n- Conclusion\n- References\n\n## Next Steps\n1. Check the document configuration\n2. Ensure all required fields are provided\n3. Try generating the document again with more specific requirements`,
       sections: {
-        'Introduction': `**Error:** Document generation failed with error: ${error.message}`,
-        'Error Details': `Failed to parse LLM response into a valid document structure. Please try again with a more specific document configuration.`
+        'Error Details': error.message,
+        'Available Sections': '- Introduction\n- Main Content\n- Conclusion\n- References',
+        'Next Steps': '1. Check the document configuration\n2. Ensure all required fields are provided\n3. Try generating the document again with more specific requirements'
       },
-      toc,
-      keywords: ['error', 'document generation', config.type.toLowerCase()],
-      references: [],
-      file_path: config.output_file
+      toc: ['Error Details', 'Available Sections', 'Next Steps'],
+      keywords: ['error', 'document generation', 'troubleshooting'],
+      references: ['Document Generation Guide', 'Error Handling Documentation'],
+      type: DocumentType.TECHNICAL_SPECIFICATION,
+      format: DocumentFormat.MARKDOWN,
+      metadata: {
+        author: 'MetaGPT Document Generator',
+        version: '1.0.0',
+        date: new Date().toISOString().split('T')[0],
+        project_name: 'MetaGPT'
+      }
     };
   }
   
   /**
    * Formats a document result into a readable format
    * @param result Document generation result
+   * @param format Document format
    * @returns Formatted document string
    */
-  private formatDocument(result: DocumentGenerationResult): string {
-    // For markdown or plain text, return the content directly
-    if (result.format === DocumentFormat.MARKDOWN || result.format === DocumentFormat.PLAIN_TEXT) {
-      return result.content;
-    }
-    
-    // For other formats, create a simple metadata header and return content
-    let formatted = '';
-    
-    formatted += `Title: ${result.title}\n`;
-    formatted += `Type: ${result.type}\n`;
-    formatted += `Format: ${result.format}\n`;
-    formatted += `Version: ${result.metadata.version}\n`;
-    formatted += `Date: ${result.metadata.date}\n`;
-    formatted += `Author: ${result.metadata.author}\n\n`;
-    
-    if (result.format === DocumentFormat.HTML) {
-      formatted += `<html><head><title>${result.title}</title></head><body>\n`;
-      formatted += result.content;
-      formatted += `\n</body></html>`;
+  private formatDocument(result: DocumentGenerationResult, format: DocumentFormat = DocumentFormat.MARKDOWN): string {
+    const metadata = this.generateMetadata(result);
+    let content = '';
+
+    if (format === DocumentFormat.HTML) {
+      content = `<!DOCTYPE html>
+<html>
+<head>
+  <title>${result.title}</title>
+  ${metadata.map((m: { type: string; name: string; value: string }) => `  <meta ${m.type}="${m.name}" content="${m.value}">`).join('\n  ')}
+</head>
+<body>
+${result.content}
+</body>
+</html>`;
     } else {
-      formatted += result.content;
+      content = `---\n${metadata.map((m: { type: string; name: string; value: string }) => `${m.name}: ${m.value}`).join('\n')}\n---\n\n${result.content}`;
     }
-    
-    return formatted;
+
+    return content;
   }
   
   /**
@@ -548,5 +593,13 @@ Provide your response as a JSON object with the following structure:
       path: result.file_path,
       reviews: []
     };
+  }
+
+  private generateMetadata(result: DocumentGenerationResult): Array<{ type: string; name: string; value: string }> {
+    return [
+      { type: 'name', name: 'author', value: result.metadata.author },
+      { type: 'name', name: 'version', value: result.metadata.version },
+      { type: 'name', name: 'date', value: result.metadata.date }
+    ];
   }
 } 

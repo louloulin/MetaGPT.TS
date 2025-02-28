@@ -4,7 +4,8 @@ import {
   DocumentStoreFactory,
   TextNormalizerTransformer
 } from '../../src/document/document-store';
-import { Document, DocumentImpl, DocumentStatus } from '../../src/types/document';
+import type { Document } from '../../src/types/document';
+import { DocumentImpl, DocumentStatus } from '../../src/types/document';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -36,7 +37,7 @@ describe('Document Store', () => {
     
     // Default mock implementations
     vi.mocked(fs.promises.readFile).mockResolvedValue('Test document content');
-    vi.mocked(fs.promises.writeFile).mockResolvedValue();
+    vi.mocked(fs.promises.writeFile).mockResolvedValue(undefined);
     vi.mocked(fs.promises.mkdir).mockResolvedValue(undefined);
     vi.mocked(fs.promises.readdir).mockResolvedValue(['file1.txt', 'file2.md'] as any);
     vi.mocked(fs.promises.stat).mockResolvedValue({
@@ -53,7 +54,7 @@ describe('Document Store', () => {
   describe('Document Loading', () => {
     it('should load a document from a file', async () => {
       const mockContent = 'Test document content';
-      vi.mocked(fs.promises.readFile).mockResolvedValueOnce(mockContent);
+      vi.mocked(fs.promises.readFile).mockResolvedValue(mockContent);
       
       const result = await documentStore.loadDocument('/test/documents/test.txt');
       

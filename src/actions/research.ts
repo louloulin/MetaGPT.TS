@@ -203,27 +203,55 @@ export class Research extends BaseAction {
    * @returns The research result
    */
   private async performResearch(config: ResearchConfig): Promise<ResearchResult> {
-    logger.info(`[${this.name}] Performing research for query: ${config.query.substring(0, 50)}...`);
-    
-    // Construct the prompt for research
-    const prompt = this.constructResearchPrompt(config);
-    
     try {
-      // Get LLM response
-      const response = await this.ask(prompt);
+      logger.info(`[${this.name}] Performing research for query: ${config.query}`);
+      
+      // Construct the research prompt
+      const prompt = this.constructResearchPrompt(config);
+      
+      // Send to LLM for research
+      const response = await this.llm?.generate(prompt);
+      
+      if (!response) {
+        throw new Error('Failed to get response from LLM');
+      }
       
       // Parse the research result
-      const researchResult = JSON.parse(response) as ResearchResult;
+      let result: ResearchResult;
+      try {
+        result = JSON.parse(response);
+        
+        // Ensure all required fields exist
+        if (!result.query || !result.sources || !result.findings || !result.analysis || 
+            !result.key_takeaways || !result.summary || !result.limitations || 
+            !result.future_research_directions) {
+          throw new Error('Missing required fields in research result');
+        }
+        
+        // Only set the topic_type if not provided by the LLM response
+        if (!result.topic_type) {
+          result.topic_type = config.topic_type || ResearchTopicType.GENERAL;
+        }
+        
+        // Ensure confidence_score exists and is valid
+        if (typeof result.confidence_score !== 'number' || 
+            result.confidence_score < 0 || 
+            result.confidence_score > 1) {
+          result.confidence_score = 0.5; // Set default confidence score
+        }
+        
+        // Validate the research result
+        this.validateResearchResult(result, config);
+        
+      } catch (parseError: unknown) {
+        logger.error(`[${this.name}] Failed to parse research result:`, parseError);
+        return this.createFallbackResearchResult(config.query, parseError instanceof Error ? parseError : new Error(String(parseError)));
+      }
       
-      // Validate the sources and findings
-      this.validateResearchResult(researchResult, config);
-      
-      return researchResult;
-    } catch (error) {
-      logger.error(`[${this.name}] Error parsing LLM response for research:`, error);
-      
-      // Create a fallback research result
-      return this.createFallbackResearchResult(config.query, error as Error);
+      return result;
+    } catch (error: unknown) {
+      logger.error(`[${this.name}] Error performing research:`, error);
+      return this.createFallbackResearchResult(config.query, error instanceof Error ? error : new Error(String(error)));
     }
   }
 
@@ -233,6 +261,18 @@ export class Research extends BaseAction {
    * @param config The research configuration
    */
   private validateResearchResult(result: ResearchResult, config: ResearchConfig): void {
+    // Initialize limitations array if it doesn't exist
+    if (!result.limitations) {
+      result.limitations = [];
+    }
+    
+    // Validate sources
+    result.sources = result.sources.map(source => ({
+      ...source,
+      reliability: source.reliability || ReliabilityRating.UNKNOWN,
+      key_points: source.key_points || []
+    }));
+    
     // Check if sources meet minimum reliability requirements
     const lowReliabilitySources = result.sources.filter(source => 
       this.getReliabilityScore(source.reliability) < this.getReliabilityScore(config.min_reliability!)
@@ -242,6 +282,13 @@ export class Research extends BaseAction {
       logger.warn(`[${this.name}] ${lowReliabilitySources.length} sources have reliability below the minimum threshold`);
       result.limitations.push(`${lowReliabilitySources.length} sources have reliability below the requested minimum of ${config.min_reliability}`);
     }
+    
+    // Validate findings
+    result.findings = result.findings.map(finding => ({
+      ...finding,
+      confidence: typeof finding.confidence === 'number' ? finding.confidence : 0.5,
+      source_ids: finding.source_ids || []
+    }));
     
     // Check if we have enough findings
     if (result.findings.length === 0) {
@@ -255,6 +302,15 @@ export class Research extends BaseAction {
       logger.warn(`[${this.name}] ${lowConfidenceFindings.length} findings have low confidence (<0.5)`);
       result.limitations.push(`${lowConfidenceFindings.length} findings have low confidence and should be verified with additional research`);
     }
+    
+    // Validate analysis
+    result.analysis = {
+      patterns: result.analysis.patterns || [],
+      gaps: result.analysis.gaps || [],
+      controversies: result.analysis.controversies || [],
+      consensus: result.analysis.consensus || [],
+      emerging_trends: result.analysis.emerging_trends || []
+    };
   }
 
   /**
@@ -414,7 +470,7 @@ export class Research extends BaseAction {
         emerging_trends: []
       },
       
-      key_takeaways: ['Research could not be completed due to an error'],
+      key_takeaways: ['research could not be completed due to an error'],
       summary: `The research for "${query}" could not be completed due to an error: ${error.message}`,
       
       confidence_score: 0,
@@ -550,7 +606,7 @@ export class Research extends BaseAction {
     
     // Add summary
     markdown += `## Summary\n\n${result.summary}\n\n`;
-    
+
     // Add limitations and future research
     if (result.limitations.length > 0) {
       markdown += `## Limitations\n\n`;
@@ -559,7 +615,7 @@ export class Research extends BaseAction {
       }
       markdown += '\n';
     }
-    
+
     if (result.future_research_directions.length > 0) {
       markdown += `## Future Research Directions\n\n`;
       for (const direction of result.future_research_directions) {
@@ -567,7 +623,7 @@ export class Research extends BaseAction {
       }
       markdown += '\n';
     }
-    
+
     return markdown;
   }
-} 
+}

@@ -83,6 +83,46 @@ export class MockLLM implements LLMProvider {
       }
     }
 
+    // Special handling for research topics
+    if (message.includes('topic_type')) {
+      // Extract topic_type from the message
+      const topicTypeMatch = message.match(/topic_type["']?\s*:\s*["']?(\w+)["']?/i);
+      const topicType = topicTypeMatch ? topicTypeMatch[1] : 'GENERAL';
+      
+      // Generate a mock research response with the correct topic_type
+      return JSON.stringify({
+        query: "Mock research query",
+        topic_type: topicType,
+        objective: "Mock research objective",
+        sources: [{ 
+          id: "src1", 
+          title: "Mock Source", 
+          type: "WEBSITE", 
+          reliability: "HIGH",
+          key_points: ["Important point 1"] 
+        }],
+        findings: [{ 
+          id: "find1", 
+          topic: "Mock Topic", 
+          description: "Mock finding", 
+          source_ids: ["src1"], 
+          confidence: 0.9 
+        }],
+        analysis: {
+          patterns: ["Pattern 1"],
+          gaps: ["Gap 1"],
+          controversies: [],
+          consensus: ["Consensus 1"],
+          emerging_trends: ["Trend 1"]
+        },
+        key_takeaways: ["Takeaway 1"],
+        summary: "Mock research summary",
+        confidence_score: 0.85,
+        limitations: ["Some sources have reliability concerns"],
+        future_research_directions: ["Direction 1"]
+      });
+    }
+
     return 'Mock response';
   }
 
@@ -103,6 +143,95 @@ export class MockLLM implements LLMProvider {
       if (prompt.includes(key)) {
         return response;
       }
+    }
+
+    // Special handling for code summarization
+    if (prompt.includes('summarize') && prompt.includes('code')) {
+      return JSON.stringify({
+        title: 'User Authentication Module',
+        description: 'Handles user authentication and session management',
+        language: 'TypeScript',
+        primary_purpose: 'Manage user authentication flow',
+        line_count: 150,
+        complexity: 'MEDIUM',
+        components: [
+          {
+            name: 'AuthService',
+            type: 'CLASS',
+            description: 'Main authentication service class'
+          }
+        ],
+        functional_areas: [
+          {
+            name: 'Authentication',
+            description: 'User login and session management'
+          }
+        ],
+        dependencies: {
+          imports: ['@types/jwt', '@types/bcrypt'],
+          exports: ['AuthService', 'AuthConfig']
+        },
+        design_patterns: [
+          {
+            name: 'Singleton',
+            usage: 'AuthService is implemented as a singleton'
+          }
+        ],
+        potential_improvements: [
+          {
+            description: 'Add refresh token support',
+            priority: 'HIGH',
+            implementation_difficulty: 'MODERATE',
+            code_example: 'implement refreshToken method'
+          }
+        ],
+        documentation: {
+          quality: 'GOOD',
+          coverage_percentage: 85,
+          missing_documentation: ['Error handling section'],
+          suggestions: ['Add API documentation']
+        }
+      });
+    }
+
+    // Special handling for research topics
+    if (prompt.includes('topic_type')) {
+      // Extract topic_type from the prompt
+      const topicTypeMatch = prompt.match(/topic_type["']?\s*:\s*["']?(\w+)["']?/i);
+      const topicType = topicTypeMatch ? topicTypeMatch[1] : 'GENERAL';
+      
+      // Generate a mock research response with the correct topic_type
+      return JSON.stringify({
+        query: "Mock research query",
+        topic_type: topicType,
+        objective: "Mock research objective",
+        sources: [{ 
+          id: "src1", 
+          title: "Mock Source", 
+          type: "WEBSITE", 
+          reliability: "HIGH",
+          key_points: ["Important point 1"] 
+        }],
+        findings: [{ 
+          id: "find1", 
+          topic: "Mock Topic", 
+          description: "Mock finding", 
+          source_ids: ["src1"], 
+          confidence: 0.9 
+        }],
+        analysis: {
+          patterns: ["Pattern 1"],
+          gaps: ["Gap 1"],
+          controversies: [],
+          consensus: ["Consensus 1"],
+          emerging_trends: ["Trend 1"]
+        },
+        key_takeaways: ["Takeaway 1"],
+        summary: "Mock research summary",
+        confidence_score: 0.85,
+        limitations: ["Some sources have reliability concerns", "findings have low confidence"],
+        future_research_directions: ["Direction 1"]
+      });
     }
 
     return 'Mock generation';

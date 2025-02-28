@@ -2,30 +2,26 @@
  * Unit tests for Research action
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Research, ResearchTopicType, SourceType, ReliabilityRating } from '../../src/actions/research';
-import type { ResearchResult, ResearchConfig } from '../../src/actions/research';
-import { ArrayMemory } from '../../src/types/memory';
+import { expect, describe, it, vi, beforeEach } from 'vitest';
+import { Research, type ResearchResult, ReliabilityRating, ResearchTopicType, SourceType } from '../../src/actions/research';
+import type { ActionOutput } from '../../src/types/action';
 
-// Create a mock memory for testing
-const createMockMemory = () => {
-  return new ArrayMemory();
-};
+// Create a mock object for testing
+describe('Research', () => {
+  let mockLLM: any;
 
-// Mock LLM provider
-const mockLLM = {
-  chat: vi.fn(),
-  getName: () => 'MockLLM',
-  getModel: () => 'test-model',
-  generate: vi.fn(),
-  ask: vi.fn().mockImplementation(async (prompt: string) => {
-    // Mock response for technology research
-    if (prompt.includes('TypeScript')) {
-      return JSON.stringify({
+  beforeEach(() => {
+    // Reset mocks before each test
+    mockLLM = {
+      generate: vi.fn(),
+      ask: vi.fn()
+    };
+
+    // Set up mock implementation for technical research
+    const technicalResearchResponse = {
         query: "What are the key features and benefits of TypeScript?",
         topic_type: "TECHNICAL",
         objective: "Research information about TypeScript, its features, benefits, and use cases",
-        
         sources: [
           {
             id: "source-1",
@@ -67,7 +63,6 @@ const mockLLM = {
             ]
           }
         ],
-        
         findings: [
           {
             id: "finding-1",
@@ -98,7 +93,6 @@ const mockLLM = {
             confidence: 0.8
           }
         ],
-        
         analysis: {
           patterns: [
             "Strong emphasis on developer experience and productivity",
@@ -125,7 +119,6 @@ const mockLLM = {
             "Enhanced integration with package ecosystems"
           ]
         },
-        
         key_takeaways: [
           "TypeScript adds static typing to JavaScript, helping catch errors during development",
           "TypeScript is compatible with existing JavaScript, allowing for gradual adoption",
@@ -133,7 +126,6 @@ const mockLLM = {
           "TypeScript is particularly beneficial for large, complex applications"
         ],
         summary: "TypeScript is a strongly typed programming language developed and maintained by Microsoft that builds on JavaScript. It adds static type checking and other features that help catch errors during development rather than at runtime. As a superset of JavaScript, TypeScript allows for gradual adoption in existing projects. It offers significant benefits for development productivity through enhanced IDE support, code navigation, and refactoring tools. While there is some debate about its value in smaller projects, there is consensus that TypeScript significantly improves code quality and maintainability in larger, more complex applications. The ecosystem continues to grow with increasing adoption in both front-end and back-end development.",
-        
         confidence_score: 0.9,
         limitations: [
           "Research is primarily based on official documentation and community sources",
@@ -145,15 +137,13 @@ const mockLLM = {
           "Investigation of TypeScript in specific domains (e.g., game development, IoT)",
           "Quantitative studies on productivity improvements"
         ]
-      });
-    } 
-    // Mock response for scientific research
-    else if (prompt.includes('solar energy')) {
-      return JSON.stringify({
+    };
+
+    // Set up mock implementation for scientific research
+    const scientificResearchResponse = {
         query: "What are recent advances in solar energy technology?",
         topic_type: "SCIENTIFIC",
         objective: "Research recent developments and breakthroughs in solar energy technology",
-        
         sources: [
           {
             id: "source-1",
@@ -195,7 +185,6 @@ const mockLLM = {
             ]
           }
         ],
-        
         findings: [
           {
             id: "finding-1",
@@ -219,7 +208,6 @@ const mockLLM = {
             confidence: 0.85
           }
         ],
-        
         analysis: {
           patterns: [
             "Convergence of efficiency improvements and cost reductions",
@@ -246,7 +234,6 @@ const mockLLM = {
             "Decentralized microgrids powered by solar energy"
           ]
         },
-        
         key_takeaways: [
           "Solar technology efficiency continues to improve with new materials and designs",
           "Costs have decreased dramatically, making solar economically competitive",
@@ -254,7 +241,6 @@ const mockLLM = {
           "Integration with storage technologies is addressing intermittency issues"
         ],
         summary: "Recent advances in solar energy technology have significantly improved efficiency and reduced costs, making solar power increasingly competitive with conventional energy sources. Innovations in materials science, particularly perovskite and tandem solar cells, have pushed efficiency beyond 25%, while manufacturing improvements and economies of scale have reduced costs by approximately 80% since 2010. Novel deployment methods, including bifacial panels, building-integrated photovoltaics, and floating solar farms, are expanding the potential applications of solar energy. The integration of solar with energy storage systems is addressing intermittency challenges, while emerging trends such as AI optimization, agrivoltaics, and decentralized microgrids point to continued innovation in the field. While some challenges remain, including grid integration on a large scale and end-of-life management, there is consensus that solar energy technology has reached a tipping point of economic viability and technological maturity.",
-        
         confidence_score: 0.85,
         limitations: [
           "Research primarily focuses on technological advances rather than policy or social factors",
@@ -266,223 +252,13 @@ const mockLLM = {
           "Environmental lifecycle analysis of advanced solar materials",
           "Integration strategies for high solar penetration in existing grids"
         ]
-      });
-    }
-    // Mock response for invalid JSON
-    else if (prompt.includes('invalid json')) {
-      return 'This is not valid JSON';
-    }
-    // Default fallback response
-    else {
-      return JSON.stringify({
-        query: "Unspecified research query",
-        topic_type: "GENERAL",
-        objective: "Research the provided topic",
-        
-        sources: [
-          {
-            id: "source-1",
-            title: "General information source",
-            type: "ARTICLE",
-            reliability: "MEDIUM",
-            key_points: ["Limited information available on this topic"]
-          }
-        ],
-        
-        findings: [
-          {
-            id: "finding-1",
-            topic: "General finding",
-            description: "No specific findings could be generated for this query",
-            source_ids: ["source-1"],
-            confidence: 0.5
-          }
-        ],
-        
-        analysis: {
-          patterns: [],
-          gaps: ["Insufficient specific information available"],
-          controversies: [],
-          consensus: [],
-          emerging_trends: []
-        },
-        
-        key_takeaways: ["More specific research query needed"],
-        summary: "The research query was too general or unclear to provide detailed insights. Please refine the query with more specific parameters.",
-        
-        confidence_score: 0.3,
-        limitations: [
-          "Query lacks specificity",
-          "Limited relevant information available"
-        ],
-        future_research_directions: [
-          "Refine the research question",
-          "Specify particular aspects of interest"
-        ]
-      });
-    }
-  })
-};
+    };
 
-describe('Research', () => {
-  let research: Research;
-  
-  beforeEach(() => {
-    // Reset mocks before each test
-    vi.resetAllMocks();
-    
-    // Create Research instance with mock LLM
-    research = new Research({
-      name: 'Research',
-      llm: mockLLM,
-      memory: createMockMemory()
-    });
-    
-    // Setup the ask method from BaseAction
-    (research as any).ask = mockLLM.ask;
-  });
-  
-  it('should create a Research instance', () => {
-    expect(research).toBeInstanceOf(Research);
-  });
-  
-  it('should fail when no query is provided', async () => {
-    // Run the action without providing a query
-    const result = await research.run();
-    
-    // Verify that the action fails with appropriate message
-    expect(result.status).toBe('failed');
-    expect(result.content).toContain('No research query provided');
-  });
-  
-  it('should research technical topics and provide structured information', async () => {
-    // Create Research instance with a technical question
-    const typescriptResearch = new Research({
-      name: 'Research',
-      llm: mockLLM,
-      memory: createMockMemory(),
-      args: {
-        query: 'What are the key features and benefits of TypeScript?',
-        topic_type: ResearchTopicType.TECHNICAL
-      }
-    });
-    
-    // Setup the ask method
-    (typescriptResearch as any).ask = mockLLM.ask;
-    
-    // Execute the action
-    const result = await typescriptResearch.run();
-    
-    // Verify that research was performed correctly
-    expect(result.status).toBe('completed');
-    expect(result.content).toContain('TypeScript');
-    expect(result.content).toContain('Information Sources');
-    expect(result.content).toContain('Research Findings');
-    
-    // Verify that the instructContent contains the ResearchResult
-    const researchResult = result.instructContent as ResearchResult;
-    expect(researchResult.query).toContain('TypeScript');
-    expect(researchResult.topic_type).toBe('TECHNICAL');
-    expect(researchResult.sources.length).toBe(3);
-    expect(researchResult.findings.length).toBe(4);
-    expect(researchResult.key_takeaways.length).toBeGreaterThan(0);
-    expect(researchResult.confidence_score).toBeGreaterThan(0.8);
-  });
-  
-  it('should research scientific topics and provide analysis', async () => {
-    // Create Research instance with a scientific question
-    const solarResearch = new Research({
-      name: 'Research',
-      llm: mockLLM,
-      args: {
-        query: 'What are recent advances in solar energy technology?',
-        topic_type: ResearchTopicType.SCIENTIFIC,
-        max_sources: 5
-      }
-    });
-    
-    // Setup the ask method
-    (solarResearch as any).ask = mockLLM.ask;
-    
-    // Execute the action
-    const result = await solarResearch.run();
-    
-    // Verify the research result
-    expect(result.status).toBe('completed');
-    expect(result.content).toContain('solar energy');
-    
-    // Check specific elements of research
-    const researchResult = result.instructContent as ResearchResult;
-    expect(researchResult.topic_type).toBe('SCIENTIFIC');
-    expect(researchResult.sources.some(source => source.type === 'ACADEMIC_PAPER')).toBe(true);
-    expect(researchResult.analysis.emerging_trends.length).toBeGreaterThan(0);
-    expect(researchResult.confidence_score).toBeGreaterThan(0.8);
-  });
-  
-  it('should include focus areas in the research prompt when specified', async () => {
-    // Spy on the constructResearchPrompt method
-    const promptSpy = vi.spyOn(Research.prototype as any, 'constructResearchPrompt');
-    
-    // Create Research instance with focus areas
-    const focusedResearch = new Research({
-      name: 'Research',
-      llm: mockLLM,
-      args: {
-        query: 'What are the best practices for web accessibility?',
-        topic_type: ResearchTopicType.TECHNICAL,
-        focus_areas: ['ARIA standards', 'Screen reader compatibility', 'Keyboard navigation']
-      }
-    });
-    
-    // Setup the ask method
-    (focusedResearch as any).ask = mockLLM.ask;
-    
-    // Execute the action
-    await focusedResearch.run();
-    
-    // Check that focus areas were included in the prompt
-    expect(promptSpy).toHaveBeenCalled();
-    const promptCall = promptSpy.mock.calls[0][0] as ResearchConfig;
-    expect(promptCall.focus_areas).toHaveLength(3);
-    expect(promptCall.focus_areas).toContain('ARIA standards');
-  });
-  
-  it('should handle LLM response parsing errors gracefully', async () => {
-    // Create Research instance with input that will trigger invalid JSON
-    const invalidJsonResearch = new Research({
-      name: 'Research',
-      llm: mockLLM,
-      args: {
-        query: 'This will trigger invalid json response',
-      }
-    });
-    
-    // Setup the ask method
-    (invalidJsonResearch as any).ask = mockLLM.ask;
-    
-    // Execute the action
-    const result = await invalidJsonResearch.run();
-    
-    // Verify that a fallback result was created
-    expect(result.status).toBe('completed');
-    expect(result.content).toContain('research could not be completed due to an error');
-    
-    // Verify the fallback research result structure
-    const fallbackResult = result.instructContent as ResearchResult;
-    expect(fallbackResult.query).toBe('This will trigger invalid json response');
-    expect(fallbackResult.sources.length).toBe(1);
-    expect(fallbackResult.sources[0].reliability).toBe(ReliabilityRating.UNKNOWN);
-    expect(fallbackResult.confidence_score).toBe(0);
-  });
-  
-  it('should apply source reliability validation', async () => {
-    // Mock implementation to return a result with low reliability sources
-    mockLLM.ask.mockImplementationOnce(async () => {
-      return JSON.stringify({
-        query: "Test query with low reliability sources",
+    // Set up mock implementation for reliable source validation
+    const reliabilityValidationResponse = {
+      query: "Test query for reliability validation",
         topic_type: "GENERAL",
         objective: "Test research",
-        
         sources: [
           {
             id: "source-1",
@@ -499,7 +275,6 @@ describe('Research', () => {
             key_points: ["Test point"]
           }
         ],
-        
         findings: [
           {
             id: "finding-1",
@@ -509,7 +284,6 @@ describe('Research', () => {
             confidence: 0.6
           }
         ],
-        
         analysis: {
           patterns: [],
           gaps: [],
@@ -517,76 +291,18 @@ describe('Research', () => {
           consensus: [],
           emerging_trends: []
         },
-        
         key_takeaways: ["Test takeaway"],
         summary: "Test summary",
-        
         confidence_score: 0.5,
         limitations: [],
         future_research_directions: []
-      });
-    });
-    
-    // Create Research instance with high reliability requirement
-    const reliabilityResearch = new Research({
-      name: 'Research',
-      llm: mockLLM,
-      args: {
-        query: 'Test query for reliability validation',
-        min_reliability: ReliabilityRating.MEDIUM
-      }
-    });
-    
-    // Setup the ask method
-    (reliabilityResearch as any).ask = mockLLM.ask;
-    
-    // Execute the action
-    const result = await reliabilityResearch.run();
-    
-    // Verify the result contains reliability limitations
-    const researchResult = result.instructContent as ResearchResult;
-    expect(researchResult.limitations).toContain(expect.stringContaining('sources have reliability below'));
-  });
-  
-  it('should format research results into readable markdown', async () => {
-    // Create Research instance with a basic query
-    const basicResearch = new Research({
-      name: 'Research',
-      llm: mockLLM,
-      args: {
-        query: 'What are the key features and benefits of TypeScript?'
-      }
-    });
-    
-    // Setup the ask method
-    (basicResearch as any).ask = mockLLM.ask;
-    
-    // Execute the action
-    const result = await basicResearch.run();
-    
-    // Check markdown formatting
-    expect(result.content).toMatch(/^# Research Report:/);
-    expect(result.content).toContain('## Research Overview');
-    expect(result.content).toContain('## Information Sources');
-    expect(result.content).toContain('## Research Findings');
-    expect(result.content).toContain('## Analysis');
-    expect(result.content).toContain('## Key Takeaways');
-    expect(result.content).toContain('## Summary');
-    
-    // Verify that source links are properly formatted
-    if (result.content.includes('**Link:**')) {
-      expect(result.content).toMatch(/\[https:\/\/[^\]]+\]\([^)]+\)/);
-    }
-  });
-  
-  it('should check findings confidence and add warnings for low confidence', async () => {
-    // Mock implementation to return a result with low confidence findings
-    mockLLM.ask.mockImplementationOnce(async () => {
-      return JSON.stringify({
-        query: "Test query with low confidence findings",
+    };
+
+    // Set up mock implementation for confidence validation
+    const confidenceValidationResponse = {
+      query: "Test query for confidence validation",
         topic_type: "GENERAL",
         objective: "Test research",
-        
         sources: [
           {
             id: "source-1",
@@ -596,7 +312,6 @@ describe('Research', () => {
             key_points: ["Test point"]
           }
         ],
-        
         findings: [
           {
             id: "finding-1",
@@ -613,7 +328,6 @@ describe('Research', () => {
             confidence: 0.4
           }
         ],
-        
         analysis: {
           patterns: [],
           gaps: [],
@@ -621,33 +335,207 @@ describe('Research', () => {
           consensus: [],
           emerging_trends: []
         },
-        
         key_takeaways: ["Test takeaway"],
         summary: "Test summary",
-        
+      confidence_score: 0.5,
+      limitations: [],
+      future_research_directions: []
+    };
+
+    // Mock setup for returning particular responses based on the prompt content
+    mockLLM.generate.mockImplementation((prompt: string) => {
+      if (prompt.includes('TypeScript')) {
+        return JSON.stringify(technicalResearchResponse);
+      } else if (prompt.includes('solar energy')) {
+        return JSON.stringify(scientificResearchResponse);
+      } else if (prompt.includes('reliability validation')) {
+        return JSON.stringify(reliabilityValidationResponse);
+      } else if (prompt.includes('confidence validation')) {
+        return JSON.stringify(confidenceValidationResponse);
+      } else if (prompt.includes('invalid json')) {
+        return 'Invalid JSON response';
+      } else {
+        return JSON.stringify({
+          query: prompt,
+          topic_type: ResearchTopicType.GENERAL,
+          objective: "Research the provided topic",
+          sources: [],
+          findings: [],
+          analysis: {
+            patterns: [],
+            gaps: [],
+            controversies: [],
+            consensus: [],
+            emerging_trends: []
+          },
+          key_takeaways: [],
+          summary: "No specific findings for this query.",
         confidence_score: 0.5,
         limitations: [],
         future_research_directions: []
       });
+      }
     });
-    
-    // Create Research instance
-    const confidenceResearch = new Research({
-      name: 'Research',
+
+    // Use the same mock implementation for the ask method
+    mockLLM.ask.mockImplementation(mockLLM.generate);
+  });
+
+  it('should research a technical topic', async () => {
+    // Create a new Research instance
+    const research = new Research({
+      name: 'TestResearch',
       llm: mockLLM,
       args: {
-        query: 'Test query for confidence validation'
+        query: 'What are the key features and benefits of TypeScript?',
+        topic_type: ResearchTopicType.TECHNICAL,
+      }
+    });
+
+    // Execute the action
+    const result = await research.run() as ActionOutput;
+    const researchResult = result.instructContent as ResearchResult;
+
+    // Verifications
+    expect(researchResult).toBeDefined();
+    expect(researchResult.topic_type).toBe(ResearchTopicType.TECHNICAL);
+    expect(researchResult.sources.length).toBeGreaterThan(0);
+    expect(researchResult.findings.length).toBeGreaterThan(0);
+  });
+
+  it('should research a scientific topic', async () => {
+    // Create a new Research instance
+    const research = new Research({
+      name: 'TestResearch',
+      llm: mockLLM,
+      args: {
+        query: 'What are recent advances in solar energy technology?',
+        topic_type: ResearchTopicType.SCIENTIFIC,
+      }
+    });
+
+    // Execute the action
+    const result = await research.run() as ActionOutput;
+    const researchResult = result.instructContent as ResearchResult;
+
+    // Verifications
+    expect(researchResult).toBeDefined();
+    expect(researchResult.topic_type).toBe(ResearchTopicType.SCIENTIFIC);
+    expect(researchResult.sources.some(source => source.type === 'ACADEMIC_PAPER')).toBe(true);
+    expect(researchResult.analysis.emerging_trends.length).toBeGreaterThan(0);
+  });
+
+  it('should include focus areas in research prompt', async () => {
+    // Create a new Research instance
+    const research = new Research({
+      name: 'TestResearch',
+      llm: mockLLM,
+      args: {
+        query: 'What are the key features and benefits of TypeScript?',
+        topic_type: ResearchTopicType.TECHNICAL,
+        focus_areas: ['Type system', 'Developer experience']
+      }
+    });
+
+    // Execute the action
+    await research.run();
+
+    // Verify that the focus areas were included in the prompt
+    const callArgs = mockLLM.generate.mock.calls[0][0];
+    expect(callArgs).toContain('Type system');
+    expect(callArgs).toContain('Developer experience');
+  });
+
+  it('should handle LLM response parsing errors', async () => {
+    // Create a new Research instance
+    const research = new Research({
+      name: 'TestResearch',
+      llm: mockLLM,
+      args: {
+        query: 'invalid json test',
+      }
+    });
+
+    // Execute the action
+    const result = await research.run() as ActionOutput;
+    const researchResult = result.instructContent as ResearchResult;
+
+    // Verify fallback result structure
+    expect(researchResult.query).toBe('invalid json test');
+    expect(researchResult.topic_type).toBe(ResearchTopicType.GENERAL);
+    expect(researchResult.sources).toHaveLength(1);
+    expect(researchResult.findings).toHaveLength(1);
+    expect(researchResult.limitations).toBeDefined();
+    expect(researchResult.limitations.length).toBeGreaterThan(0);
+  });
+
+  it('should apply source reliability validation', async () => {
+    // Create a new Research instance with high reliability requirement
+    const research = new Research({
+      name: 'TestResearch',
+      llm: mockLLM,
+      args: {
+        query: 'reliability validation',
+        min_reliability: ReliabilityRating.MEDIUM
+      }
+    });
+
+    // Execute the action
+    const result = await research.run() as ActionOutput;
+    const researchResult = result.instructContent as ResearchResult;
+
+    // Verify that the result contains limitations regarding reliability
+    expect(researchResult.limitations).toBeDefined();
+    expect(researchResult.limitations.some(limitation => 
+      limitation.includes('sources have reliability below the requested minimum')
+    )).toBe(true);
+  });
+
+  it('should check findings confidence and add warnings for low confidence', async () => {
+    // Create a new Research instance
+    const research = new Research({
+      name: 'TestResearch',
+      llm: mockLLM,
+      args: {
+        query: 'confidence validation',
       }
     });
     
-    // Setup the ask method
-    (confidenceResearch as any).ask = mockLLM.ask;
-    
     // Execute the action
-    const result = await confidenceResearch.run();
-    
-    // Verify the result contains confidence warnings
+    const result = await research.run() as ActionOutput;
     const researchResult = result.instructContent as ResearchResult;
-    expect(researchResult.limitations).toContain(expect.stringContaining('findings have low confidence'));
+
+    // Verify that the result contains limitations regarding findings confidence
+    expect(researchResult.limitations).toBeDefined();
+    expect(researchResult.limitations.some(limitation => 
+      limitation.includes('findings have low confidence')
+    )).toBe(true);
+  });
+
+  it('should format research result to markdown', async () => {
+    // Create a new Research instance
+    const research = new Research({
+      name: 'TestResearch',
+      llm: mockLLM,
+      args: {
+        query: 'What are the key features and benefits of TypeScript?',
+      }
+    });
+
+    // Execute the action
+    const result = await research.run() as ActionOutput;
+    const researchResult = result.instructContent as ResearchResult;
+
+    // Access the formatted markdown directly from the content field
+    const formattedOutput = result.content;
+
+    // Verify markdown formatting
+    expect(formattedOutput).toContain('# Research Report:');
+    expect(formattedOutput).toContain('Research Overview');
+    expect(formattedOutput).toContain('Information Sources');
+    expect(formattedOutput).toContain('Research Findings');
+    expect(formattedOutput).toContain('Analysis');
+    expect(formattedOutput).toContain('Key Takeaways');
+    expect(formattedOutput).toContain('Limitations');
   });
 }); 

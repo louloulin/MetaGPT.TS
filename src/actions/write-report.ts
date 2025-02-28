@@ -167,7 +167,7 @@ export class WriteReport extends BaseAction {
       title: 'Basic Report',
       type: this.args.report_type || ReportType.PROJECT_STATUS,
       format: this.args.format || ReportFormat.DETAILED,
-      executive_summary: `Basic report for: ${prompt}`,
+      executive_summary: `Generated based on available information. Basic report for: ${prompt}`,
       date: new Date().toISOString(),
       author: this.args.author || 'System Generated',
       sections: [{
@@ -204,7 +204,8 @@ export class WriteReport extends BaseAction {
     if (this.args.include_metrics && report.metrics && report.metrics.length > 0) {
       output += `## Key Metrics\n\n`;
       report.metrics.forEach(metric => {
-        output += `${metric.name}: ${metric.value}${metric.target ? ` (Target: ${metric.target})` : ''} - ${metric.status}\n\n`;
+        const statusDisplay = metric.status.replace('_', ' ');
+        output += `${metric.name}: ${metric.value}${metric.target ? ` (Target: ${metric.target})` : ''} - ${statusDisplay}\n\n`;
       });
     }
 
@@ -259,7 +260,10 @@ export class WriteReport extends BaseAction {
       section.data_points.forEach(dp => {
         let dataPoint = `- ${dp.label}: ${dp.value}`;
         if (dp.unit) dataPoint += ` ${dp.unit}`;
-        if (dp.trend) dataPoint += ` (${dp.trend}`;
+        if (dp.trend) {
+          const trendSymbol = dp.trend === 'UP' ? '↑' : dp.trend === 'DOWN' ? '↓' : '';
+          dataPoint += ` (${trendSymbol}`;
+        }
         if (dp.change_percentage) dataPoint += ` ${dp.change_percentage}%`;
         if (dp.trend) dataPoint += ')';
         output += `${dataPoint}\n`;
@@ -277,6 +281,14 @@ export class WriteReport extends BaseAction {
       output += `### Recommendations\n`;
       section.recommendations.forEach(rec => {
         output += `- ${rec}\n`;
+      });
+      output += '\n';
+    }
+
+    if (section.references && section.references.length > 0) {
+      output += `### References\n`;
+      section.references.forEach(ref => {
+        output += `- ${ref}\n`;
       });
       output += '\n';
     }

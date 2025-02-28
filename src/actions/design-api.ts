@@ -85,6 +85,7 @@ export class DesignAPI extends BaseAction {
       try {
         await this.saveDesignDiagrams(design);
       } catch (saveError) {
+        // Log the error but don't fail the action
         logger.warn(`[${this.name}] Could not save design diagrams:`, saveError);
       }
 
@@ -205,30 +206,35 @@ export class DesignAPI extends BaseAction {
     const workdir = this.getArg<string>('workdir') || './output';
     const outputDir = path.join(workdir, 'designs');
     
-    // Create output directories
-    await fs.mkdir(path.join(outputDir, 'class_diagrams'), { recursive: true });
-    await fs.mkdir(path.join(outputDir, 'sequence_diagrams'), { recursive: true });
-    
-    // Extract class diagrams
-    const classMatch = design.match(/```mermaid\s*\n*classDiagram\s*([\s\S]*?)```/g);
-    if (classMatch && classMatch.length > 0) {
-      const classContent = classMatch[0].replace(/```mermaid\s*\n*/, '').replace(/```$/, '');
-      await fs.writeFile(
-        path.join(outputDir, 'class_diagrams', `class_diagram_${Date.now()}.mmd`),
-        classContent
-      );
-      logger.info(`[${this.name}] Saved class diagram`);
-    }
-    
-    // Extract sequence diagrams
-    const seqMatch = design.match(/```mermaid\s*\n*sequenceDiagram\s*([\s\S]*?)```/g);
-    if (seqMatch && seqMatch.length > 0) {
-      const seqContent = seqMatch[0].replace(/```mermaid\s*\n*/, '').replace(/```$/, '');
-      await fs.writeFile(
-        path.join(outputDir, 'sequence_diagrams', `sequence_diagram_${Date.now()}.mmd`),
-        seqContent
-      );
-      logger.info(`[${this.name}] Saved sequence diagram`);
+    try {
+      // Create output directories
+      await fs.mkdir(path.join(outputDir, 'class_diagrams'), { recursive: true });
+      await fs.mkdir(path.join(outputDir, 'sequence_diagrams'), { recursive: true });
+      
+      // Extract class diagrams
+      const classMatch = design.match(/```mermaid\s*\n*classDiagram\s*([\s\S]*?)```/g);
+      if (classMatch && classMatch.length > 0) {
+        const classContent = classMatch[0].replace(/```mermaid\s*\n*/, '').replace(/```$/, '');
+        await fs.writeFile(
+          path.join(outputDir, 'class_diagrams', `class_diagram_${Date.now()}.mmd`),
+          classContent
+        );
+        logger.info(`[${this.name}] Saved class diagram`);
+      }
+      
+      // Extract sequence diagrams
+      const seqMatch = design.match(/```mermaid\s*\n*sequenceDiagram\s*([\s\S]*?)```/g);
+      if (seqMatch && seqMatch.length > 0) {
+        const seqContent = seqMatch[0].replace(/```mermaid\s*\n*/, '').replace(/```$/, '');
+        await fs.writeFile(
+          path.join(outputDir, 'sequence_diagrams', `sequence_diagram_${Date.now()}.mmd`),
+          seqContent
+        );
+        logger.info(`[${this.name}] Saved sequence diagram`);
+      }
+    } catch (error) {
+      // Re-throw the error to be handled by the caller
+      throw error;
     }
   }
 } 

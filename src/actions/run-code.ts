@@ -82,70 +82,65 @@ export class RunCode extends BaseAction {
    */
   public async run(): Promise<ActionOutput> {
     try {
-      logger.info(`[${this.name}] Running RunCode action`);
+      // Get the latest message from memory
+      const messages = this.context?.memory?.get();
       
-      // Get the last message from memory
-      const messages = this.context.memory.get();
       if (!messages || messages.length === 0) {
-        return this.createOutput(
-          'No messages available',
-          'failed'
-        );
+        return {
+          status: 'failed',
+          content: 'No messages available',
+          instructContent: null
+        };
       }
 
-      // Parse the last message to get code and configuration
-      const lastMessage = messages[messages.length - 1];
-      let code: string;
-      let language: string = ProgrammingLanguage.JAVASCRIPT;
-
-      try {
-        // Try to parse as JSON first
-        const parsed = JSON.parse(lastMessage.content);
-        code = parsed.code;
-        language = parsed.language || language;
-      } catch {
-        // If not JSON, treat the entire message as code
-        code = lastMessage.content;
+      // Extract code from the latest message
+      const latestMessage = messages[messages.length - 1];
+      
+      if (!latestMessage || !latestMessage.content) {
+        return {
+          status: 'failed',
+          content: 'No messages available',
+          instructContent: null
+        };
       }
 
-      // Validate code input
-      if (!code) {
-        return this.createOutput(
-          'No code provided for execution. Please provide the code to run.',
-          'failed'
-        );
+      // Extract code from the message - simple extraction for now
+      // In a real implementation, we would use a more sophisticated extraction method
+      const codeMatch = latestMessage.content.match(/```(?:\w+)?\s*([\s\S]*?)```|Run this code:\s*([\s\S]*)/i);
+      const code = codeMatch ? (codeMatch[1] || codeMatch[2]).trim() : latestMessage.content;
+      
+      // Detect language - simple detection for now
+      // In a real implementation, we would use a more sophisticated language detection
+      let language = ProgrammingLanguage.JAVASCRIPT;
+      if (code.includes('import ') || code.includes('from ')) {
+        language = ProgrammingLanguage.PYTHON;
+      } else if (code.includes('echo ') || code.includes('#!/bin/bash')) {
+        language = ProgrammingLanguage.BASH;
       }
-
+      
       // Execute the code
-      const result = await this.executeCode({
-        code,
+      const executionResult = await this.executeCode({
         language,
-        timeout: this.getArg<number>('timeout') || DEFAULT_CONFIG.timeout,
-        args: this.getArg<string[]>('args') || DEFAULT_CONFIG.args,
-        env: this.getArg<Record<string, string>>('env') || DEFAULT_CONFIG.env,
-        memoryLimit: this.getArg<number>('memoryLimit') || DEFAULT_CONFIG.memoryLimit,
-        useContainer: this.getArg<boolean>('useContainer') || DEFAULT_CONFIG.useContainer,
-        containerImage: this.getArg<string>('containerImage'),
+        code,
+        timeout: 5000, // 5 seconds timeout
+        workingDirectory: process.cwd()
       });
-
-      // Generate output
-      const formattedResult = this.formatResult(result);
       
-      // Determine if execution was successful based on exit code and error presence
-      const status = result.success ? 'completed' : 'failed';
+      // Format the result
+      const formattedResult = this.formatResult(executionResult);
       
-      return this.createOutput(
-        formattedResult,
-        status,
-        result
-      );
+      return {
+        status: executionResult.success ? 'completed' : 'failed',
+        content: formattedResult,
+        instructContent: executionResult
+      };
     } catch (error) {
-      logger.error(`[${this.name}] Error in RunCode action:`, error);
-      await this.handleException(error as Error);
-      return this.createOutput(
-        `Failed to execute code: ${error}`,
-        'failed'
-      );
+      logger.error('Failed to execute code:', error);
+      return {
+        status: 'failed',
+        content: `Failed to execute code: ${error}`,
+        instructContent: null
+      };
     }
   }
 

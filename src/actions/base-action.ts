@@ -62,9 +62,12 @@ export abstract class BaseAction implements Action {
    * Handle exceptions
    * @param error Error object
    */
-  async handleException(error: Error): Promise<void> {
+  async handleException(error: Error): Promise<ActionOutput> {
     logger.error(`Action ${this.name} failed:`, error);
-    // Subclasses can override this method to provide custom error handling
+    return this.createOutput(
+      `Action failed: ${error.message}`,
+      'failed'
+    );
   }
 
   /**
@@ -133,7 +136,12 @@ export abstract class BaseAction implements Action {
   protected async ask(prompt: string): Promise<string> {
     try {
       if (!this.llm) {
-        throw new Error(`[${this.name}] No LLM provider set for action`);
+        // Try to get LLM from args
+        const llmFromArgs = this.getArg<LLMProvider>('llm');
+        if (!llmFromArgs) {
+          throw new Error(`[${this.name}] No LLM provider set for action`);
+        }
+        this.llm = llmFromArgs;
       }
       
       // Apply system messages if provided
@@ -154,11 +162,26 @@ export abstract class BaseAction implements Action {
       }
 
       // Send prompt to LLM
-      logger.debug(`[${this.name}] Asking LLM: ${prompt.substring(0, 100)}...`);
-      const response = await this.llm.chat(prompt);
-      logger.debug(`[${this.name}] LLM response: ${response.substring(0, 100)}...`);
+      const promptPreview = prompt.length > 100 ? prompt.substring(0, 100) + '...' : prompt;
+      logger.debug(`[${this.name}] Asking LLM: ${promptPreview}`);
       
-      return response;
+      const response = await this.llm.chat(prompt) as string | { content: string };
+      
+      if (!response) {
+        throw new Error(`[${this.name}] No response received from LLM`);
+      }
+
+      // Handle response format
+      const content = typeof response === 'object' && 'content' in response ? response.content : response;
+      
+      if (!content) {
+        throw new Error(`[${this.name}] No content in LLM response`);
+      }
+      
+      const responsePreview = content.length > 100 ? content.substring(0, 100) + '...' : content;
+      logger.debug(`[${this.name}] LLM response: ${responsePreview}`);
+      
+      return content;
     } catch (error) {
       logger.error(`[${this.name}] Error asking LLM:`, error);
       throw error;
