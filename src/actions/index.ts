@@ -39,4 +39,10 @@ export { PrepareDocuments } from './prepare-documents';
 // Project management actions
 export { ProjectManagement } from './project-management';
 export { FixBug } from './fix-bug';
-export { ExecuteTask } from './execute-task'; 
+export { ExecuteTask } from './execute-task';
+
+// Education related actions
+export { CreateLesson } from './create-lesson';
+export { ExplainConcept } from './explain-concept';
+export { AssessUnderstanding } from './assess-understanding';
+export { ProvideFeedback } from './provide-feedback'; 

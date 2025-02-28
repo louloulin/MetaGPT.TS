@@ -30,7 +30,7 @@ async function main() {
     
     // Choose provider based on available API key
     const providerType = process.env.DASHSCOPE_API_KEY ? 'qwen' : 'openai';
-    const model = providerType === 'qwen' ? 'qwen-plus' : 'gpt-3.5-turbo';
+    const model = providerType === 'qwen' ? 'qwen-plus-2025-01-25' : 'gpt-3.5-turbo';
     const baseURL = providerType === 'qwen' 
       ? 'https://dashscope.aliyuncs.com/compatible-mode/v1' 
       : undefined;
