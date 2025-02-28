@@ -5,15 +5,15 @@
  * handles errors, provides sandbox isolation, and manages execution timeouts.
  */
 
-import { BaseAction } from './base-action';
-import type { ActionOutput, ActionConfig } from '../types/action';
-import { logger } from '../utils/logger';
-import * as childProcess from 'child_process';
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import * as os from 'os';
+import { BaseAction } from '../actions/base-action';
+import type { ActionConfig, ActionOutput, ActionContext } from '../types/action';
+import { spawn } from 'child_process';
+import { mkdir, writeFile, rm } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import { v4 as uuidv4 } from 'uuid';
-import { UserMessage } from '../types/message';
+import { logger } from '../utils/logger';
+import * as fs from 'fs/promises';
 
 /**
  * Supported programming languages
@@ -23,7 +23,7 @@ export enum ProgrammingLanguage {
   TYPESCRIPT = 'typescript',
   PYTHON = 'python',
   BASH = 'bash',
-  RUBY = 'ruby',
+  RUBY = 'ruby'
 }
 
 /**
@@ -42,11 +42,11 @@ export interface ExecutionResult {
  * Code execution configuration
  */
 export interface CodeExecutionConfig {
-  language: ProgrammingLanguage | string;
+  language: ProgrammingLanguage;
   code: string;
   timeout?: number; // Timeout in milliseconds
   args?: string[]; // Command-line arguments
-  workingDirectory?: string; // Working directory for execution
+  workingDir?: string; // Working directory for execution
   env?: Record<string, string>; // Environment variables
   memoryLimit?: number; // Memory limit in MB
   useContainer?: boolean; // Whether to use a container for isolation
@@ -54,26 +54,28 @@ export interface CodeExecutionConfig {
 }
 
 /**
- * Default configuration values
- */
-const DEFAULT_CONFIG: Partial<CodeExecutionConfig> = {
-  timeout: 30000, // 30 seconds default timeout
-  args: [],
-  env: {},
-  memoryLimit: 512, // 512MB default memory limit
-  useContainer: false, // Container isolation is off by default
-};
-
-/**
  * Action for running code in various languages
  */
 export class RunCode extends BaseAction {
+  private config: Partial<CodeExecutionConfig>;
+  private tempDir: string = '';
+
   constructor(config: ActionConfig) {
     super({
-      ...config,
       name: config.name || 'RunCode',
-      description: config.description || 'Executes code in a controlled environment with sandbox isolation and resource limits',
+      description: config.description || 'Executes code in a controlled environment',
+      llm: config.llm,
+      memory: config.memory
     });
+    
+    this.config = {
+      timeout: config.args?.timeout || 30000,
+      memoryLimit: config.args?.memoryLimit || 512,
+      useContainer: config.args?.useContainer || false,
+      containerImage: config.args?.containerImage,
+      env: config.args?.env || {},
+      args: config.args?.args || []
+    };
   }
 
   /**
@@ -82,425 +84,300 @@ export class RunCode extends BaseAction {
    */
   public async run(): Promise<ActionOutput> {
     try {
-      // Get the latest message from memory
-      const messages = this.context?.memory?.get();
+      const messages = await this.context.memory?.get();
+      logger.debug('RunCode: Retrieved messages from memory', { messageCount: messages?.length });
       
       if (!messages || messages.length === 0) {
-        return {
-          status: 'failed',
-          content: 'No messages available',
-          instructContent: null
-        };
+        logger.warn('RunCode: No messages available');
+        return super.createOutput('No messages available', 'failed');
       }
 
-      // Extract code from the latest message
-      const latestMessage = messages[messages.length - 1];
-      
-      if (!latestMessage || !latestMessage.content) {
-        return {
-          status: 'failed',
-          content: 'No messages available',
-          instructContent: null
-        };
+      const lastMessage = messages[messages.length - 1];
+      if (!lastMessage) {
+        logger.warn('RunCode: No last message found');
+        return super.createOutput('No messages available', 'failed');
       }
 
-      // Extract code from the message - simple extraction for now
-      // In a real implementation, we would use a more sophisticated extraction method
-      const codeMatch = latestMessage.content.match(/```(?:\w+)?\s*([\s\S]*?)```|Run this code:\s*([\s\S]*)/i);
-      const code = codeMatch ? (codeMatch[1] || codeMatch[2]).trim() : latestMessage.content;
+      logger.debug('RunCode: Processing message', { 
+        messageId: lastMessage.id,
+        content: lastMessage.content 
+      });
+
+      const { code, language } = this.extractCodeAndLanguage(lastMessage.content || '');
+      logger.debug('RunCode: Extracted code and language', { language, codeLength: code?.length });
       
-      // Detect language - simple detection for now
-      // In a real implementation, we would use a more sophisticated language detection
-      let language = ProgrammingLanguage.JAVASCRIPT;
-      if (code.includes('import ') || code.includes('from ')) {
-        language = ProgrammingLanguage.PYTHON;
-      } else if (code.includes('echo ') || code.includes('#!/bin/bash')) {
-        language = ProgrammingLanguage.BASH;
+      if (!code) {
+        logger.warn('RunCode: No valid code found in message');
+        return super.createOutput('No valid code found in message', 'failed');
       }
-      
-      // Execute the code
-      const executionResult = await this.executeCode({
-        language,
+
+      const execConfig: CodeExecutionConfig = {
+        ...this.config,
         code,
-        timeout: 5000, // 5 seconds timeout
-        workingDirectory: process.cwd()
+        language: language || ProgrammingLanguage.JAVASCRIPT
+      };
+      logger.debug('RunCode: Execution config', { 
+        language: execConfig.language,
+        timeout: execConfig.timeout,
+        useContainer: execConfig.useContainer 
+      });
+
+      const result = await this.executeCode(execConfig);
+      logger.debug('RunCode: Execution result', { 
+        success: result.success,
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        executionTime: result.executionTime
       });
       
-      // Format the result
-      const formattedResult = this.formatResult(executionResult);
+      // Format the execution result
+      const content = this.formatExecutionResult(result);
       
-      return {
-        status: executionResult.success ? 'completed' : 'failed',
-        content: formattedResult,
-        instructContent: executionResult
-      };
-    } catch (error) {
-      logger.error('Failed to execute code:', error);
-      return {
-        status: 'failed',
-        content: `Failed to execute code: ${error}`,
-        instructContent: null
-      };
+      // Determine status based on execution result and stderr
+      const status = result.exitCode === 0 && !result.stderr ? 'completed' : 'failed';
+      logger.debug('RunCode: Final output', { status, contentLength: content.length });
+      
+      return super.createOutput(content, status);
+    } catch (err) {
+      const error = err as Error;
+      logger.error('RunCode: Error executing code', { 
+        error: error.message,
+        stack: error.stack 
+      });
+      return super.createOutput(`Error executing code: ${error.message}`, 'failed');
     }
   }
 
   /**
-   * Executes code with the given configuration
+   * Extracts code and language from message content
+   * @param content Message content
+   * @returns Code and language
+   */
+  private extractCodeAndLanguage(content: string): { code: string; language?: ProgrammingLanguage } {
+    try {
+      // Try to parse as JSON first (for structured input)
+      const parsed = JSON.parse(content);
+      if (parsed.code) {
+        return {
+          code: parsed.code,
+          language: parsed.language
+        };
+      }
+    } catch {
+      // If not JSON, try to extract code from text
+      const codeMatch = content.match(/Run this code:?\s*([\s\S]+)/i);
+      if (codeMatch) {
+        return {
+          code: codeMatch[1].trim(),
+          language: this.detectLanguage(codeMatch[1].trim())
+        };
+      }
+    }
+    return { code: content.trim() };
+  }
+
+  /**
+   * Detects programming language from code
+   * @param code Code content
+   * @returns Detected language
+   */
+  private detectLanguage(code: string): ProgrammingLanguage {
+    if (code.includes('console.log')) {
+      return ProgrammingLanguage.JAVASCRIPT;
+    }
+    if (code.includes('print(')) {
+      return ProgrammingLanguage.PYTHON;
+    }
+    return ProgrammingLanguage.JAVASCRIPT;
+  }
+
+  /**
+   * Executes the provided code
    * @param config Code execution configuration
    * @returns Execution result
    */
   private async executeCode(config: CodeExecutionConfig): Promise<ExecutionResult> {
-    const startTime = Date.now();
-    const tempDir = await this.createTempDirectory();
-    
+    const tempDir = join(tmpdir(), 'metagpt-code');
+    const fileName = this.getFileName(config.language);
+    const filePath = join(tempDir, fileName);
+    logger.debug('RunCode: Preparing to execute code', { 
+      tempDir,
+      fileName,
+      filePath,
+      language: config.language 
+    });
+
     try {
-      // Apply default configuration values
-      const execConfig = { ...DEFAULT_CONFIG, ...config };
-      
-      // Prepare code file
-      const codeFilePath = await this.writeCodeToFile(tempDir, execConfig.code, execConfig.language);
-      
-      // Execute based on isolation mode
-      const result = execConfig.useContainer 
-        ? await this.executeInContainer(codeFilePath, execConfig)
-        : await this.executeNatively(codeFilePath, execConfig);
-      
-      // Calculate execution time
-      const executionTime = Date.now() - startTime;
-      
-      return {
-        ...result,
-        executionTime,
-        success: result.exitCode === 0 && !result.error,
-      };
+      // Create temp directory
+      await mkdir(tempDir, { recursive: true });
+      logger.debug('RunCode: Created temp directory', { tempDir });
+
+      // Write code to file
+      await writeFile(filePath, config.code);
+      logger.debug('RunCode: Written code to file', { filePath });
+
+      // Execute code based on configuration
+      const result = await this.executeNatively(config.code, config.language);
+      logger.debug('RunCode: Native execution completed', { 
+        success: result.success,
+        exitCode: result.exitCode 
+      });
+
+      return result;
     } catch (error) {
-      // Handle execution errors
+      logger.error('RunCode: Error in executeCode', { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
       return {
         stdout: '',
-        stderr: error instanceof Error ? error.message : String(error),
+        stderr: error instanceof Error ? error.message : 'Unknown error',
         exitCode: 1,
-        executionTime: Date.now() - startTime,
+        executionTime: 0,
         success: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     } finally {
-      // Cleanup temporary directory
-      await this.cleanupTempDirectory(tempDir);
+      // Clean up temp files
+      try {
+        await rm(filePath);
+        await rm(tempDir, { recursive: true });
+        logger.debug('RunCode: Cleaned up temp files');
+      } catch (error) {
+        logger.error('RunCode: Failed to clean up temp files', { 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        });
+      }
     }
   }
 
   /**
-   * Creates a temporary directory for code execution
-   * @returns Path to temporary directory
+   * Gets the file name for the given language
+   * @param language Programming language
+   * @returns File name with appropriate extension
    */
-  private async createTempDirectory(): Promise<string> {
-    const tempDir = path.join(os.tmpdir(), `runcode-${uuidv4()}`);
-    await fs.mkdir(tempDir, { recursive: true });
-    return tempDir;
-  }
-
-  /**
-   * Cleans up temporary directory
-   * @param tempDir Path to temporary directory
-   */
-  private async cleanupTempDirectory(tempDir: string): Promise<void> {
-    try {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    } catch (error) {
-      logger.warn(`[${this.name}] Failed to cleanup temporary directory:`, error);
+  private getFileName(language: ProgrammingLanguage): string {
+    switch (language) {
+      case ProgrammingLanguage.JAVASCRIPT:
+        return 'code.js';
+      case ProgrammingLanguage.PYTHON:
+        return 'code.py';
+      case ProgrammingLanguage.TYPESCRIPT:
+        return 'code.ts';
+      default:
+        return 'code.txt';
     }
   }
 
   /**
-   * Writes code to a file in the temporary directory
-   * @param tempDir Path to temporary directory
-   * @param code Code to write
+   * Gets the file extension for the given language
    * @param language Programming language
-   * @returns Path to code file
+   * @returns File extension including dot
    */
-  private async writeCodeToFile(tempDir: string, code: string, language: string): Promise<string> {
-    // Determine file extension based on language
-    const extension = this.getFileExtensionForLanguage(language);
-    const filePath = path.join(tempDir, `code${extension}`);
-    
-    // Write code to file
-    await fs.writeFile(filePath, code, 'utf-8');
-    
-    return filePath;
-  }
-
-  /**
-   * Gets file extension for a programming language
-   * @param language Programming language
-   * @returns File extension
-   */
-  private getFileExtensionForLanguage(language: string): string {
-    const extensions: Record<string, string> = {
-      [ProgrammingLanguage.JAVASCRIPT]: '.js',
-      [ProgrammingLanguage.TYPESCRIPT]: '.ts',
-      [ProgrammingLanguage.PYTHON]: '.py',
-      [ProgrammingLanguage.BASH]: '.sh',
-      [ProgrammingLanguage.RUBY]: '.rb',
-    };
-    
-    return extensions[language.toLowerCase()] || '.txt';
-  }
-
-  /**
-   * Gets command to execute a file based on its language
-   * @param filePath Path to code file
-   * @param language Programming language
-   * @returns Command to execute
-   */
-  private getExecutionCommand(filePath: string, language: string): { command: string, args: string[] } {
-    const commands: Record<string, { command: string, args: string[] }> = {
-      [ProgrammingLanguage.JAVASCRIPT]: { command: 'node', args: [filePath] },
-      [ProgrammingLanguage.TYPESCRIPT]: { command: 'ts-node', args: [filePath] },
-      [ProgrammingLanguage.PYTHON]: { command: 'python', args: [filePath] },
-      [ProgrammingLanguage.BASH]: { command: 'bash', args: [filePath] },
-      [ProgrammingLanguage.RUBY]: { command: 'ruby', args: [filePath] },
-    };
-    
-    return commands[language.toLowerCase()] || { command: 'cat', args: [filePath] };
+  private getFileExtension(language: ProgrammingLanguage): string {
+    switch (language) {
+      case ProgrammingLanguage.JAVASCRIPT:
+        return '.js';
+      case ProgrammingLanguage.TYPESCRIPT:
+        return '.ts';
+      case ProgrammingLanguage.PYTHON:
+        return '.py';
+      case ProgrammingLanguage.RUBY:
+        return '.rb';
+      case ProgrammingLanguage.BASH:
+        return '.sh';
+      default:
+        return '.txt';
+    }
   }
 
   /**
    * Executes code natively (without container isolation)
-   * @param codeFilePath Path to code file
-   * @param config Code execution configuration
+   * @param code Code content
+   * @param language Programming language
    * @returns Execution result
    */
-  private executeNatively(codeFilePath: string, config: CodeExecutionConfig): Promise<Omit<ExecutionResult, 'executionTime' | 'success'>> {
+  private async executeNatively(code: string, language: ProgrammingLanguage): Promise<ExecutionResult> {
+    const tempDir = join(tmpdir(), 'metagpt-code');
+    await mkdir(tempDir, { recursive: true });
+
+    const fileName = this.getFileName(language);
+    const filePath = join(tempDir, fileName);
+    
+    console.log('Writing code to file:', { filePath, code });
+    await writeFile(filePath, code);
+
+    console.log('Executing code:', { language, filePath });
+
+    const command = this.getCommand(language);
+    const args = [filePath];
+
     return new Promise((resolve) => {
-      // Get execution command
-      const { command, args: cmdArgs } = this.getExecutionCommand(codeFilePath, config.language);
-      const allArgs = [...cmdArgs, ...(config.args || [])];
-      
-      // Prepare environment variables
-      const env = { ...process.env, ...(config.env || {}) };
-
-      // Prepare execution options
-      const options: childProcess.SpawnOptions = {
-        cwd: config.workingDirectory || path.dirname(codeFilePath),
-        env,
-        timeout: config.timeout,
-        stdio: 'pipe',
-        shell: true,
-      };
-
-      // Start process
-      const proc = childProcess.spawn(command, allArgs, options);
-      
-      // Collect output
       let stdout = '';
       let stderr = '';
-      
-      if (proc.stdout) {
-        proc.stdout.on('data', (data) => {
-          stdout += data.toString();
-        });
-      }
-      
-      if (proc.stderr) {
-        proc.stderr.on('data', (data) => {
-          stderr += data.toString();
-        });
-      }
-      
-      // Handle process exit
-      proc.on('close', (exitCode) => {
-        resolve({
-          stdout,
-          stderr,
-          exitCode: exitCode !== null ? exitCode : 1,
-        });
+      let hasError = false;
+
+      const process = spawn(command, args);
+
+      process.stdout.on('data', (data) => {
+        const output = data.toString();
+        console.log('Process stdout:', output);
+        stdout += output;
       });
-      
-      // Handle process error
-      proc.on('error', (error) => {
-        resolve({
-          stdout,
-          stderr: error.message,
-          exitCode: 1,
-          error: error.message,
-        });
+
+      process.stderr.on('data', (data) => {
+        const error = data.toString();
+        console.log('Process stderr:', error);
+        stderr += error;
+        hasError = true;
       });
-      
-      // Handle timeout
-      if (config.timeout) {
-        setTimeout(() => {
-          // Kill process if it's still running
-          if (proc.connected) {
-            proc.kill();
-            resolve({
-              stdout,
-              stderr: 'Execution timed out',
-              exitCode: 124, // Standard timeout exit code
-              error: 'Execution timed out',
-            });
-          }
-        }, config.timeout);
-      }
+
+      process.on('error', (error) => {
+        console.log('Process error:', error);
+        stderr += error.toString();
+        hasError = true;
+      });
+
+      process.on('close', async (code) => {
+        console.log('Process closed:', { code, hasError });
+        try {
+          await fs.unlink(filePath);
+          await fs.rm(tempDir, { recursive: true, force: true });
+        } catch (error) {
+          console.error('Error cleaning up:', error);
+        }
+
+        const result: ExecutionResult = {
+          stdout: stdout.trim(),
+          stderr: stderr.trim(),
+          exitCode: code || 0,
+          executionTime: 0,
+          success: !hasError,
+          error: hasError ? stderr.trim() : undefined
+        };
+
+        console.log('Execution result:', result);
+        resolve(result);
+      });
     });
   }
 
   /**
-   * Executes code in a container for isolation
-   * @param codeFilePath Path to code file
-   * @param config Code execution configuration
-   * @returns Execution result
-   */
-  private async executeInContainer(codeFilePath: string, config: CodeExecutionConfig): Promise<Omit<ExecutionResult, 'executionTime' | 'success'>> {
-    // If Docker is not available, fallback to native execution
-    if (!await this.isDockerAvailable()) {
-      logger.warn(`[${this.name}] Docker not available, falling back to native execution`);
-      return this.executeNatively(codeFilePath, config);
-    }
-    
-    // Get container image based on language
-    const image = config.containerImage || this.getDefaultContainerImage(config.language);
-    
-    // Prepare Docker run command
-    const fileName = path.basename(codeFilePath);
-    const containerPath = `/app/${fileName}`;
-    
-    // Build Docker command
-    const dockerArgs = [
-      'run',
-      '--rm',
-      // Set memory limit if specified
-      ...(config.memoryLimit ? [`--memory=${config.memoryLimit}m`] : []),
-      // Set environment variables
-      ...Object.entries(config.env || {}).flatMap(([key, value]) => ['--env', `${key}=${value}`]),
-      // Mount the code file
-      '-v', `${codeFilePath}:${containerPath}:ro`,
-      // Set working directory
-      '-w', '/app',
-      // Set container image
-      image,
-    ];
-    
-    // Get execution command
-    const { command, args: cmdArgs } = this.getExecutionCommandForContainer(containerPath, config.language);
-    const allArgs = [...dockerArgs, command, ...cmdArgs, ...(config.args || [])];
-    
-    return new Promise((resolve) => {
-      // Run Docker container
-      const proc = childProcess.spawn('docker', allArgs, {
-        timeout: config.timeout,
-        stdio: 'pipe',
-      });
-      
-      // Collect output
-      let stdout = '';
-      let stderr = '';
-      
-      if (proc.stdout) {
-        proc.stdout.on('data', (data) => {
-          stdout += data.toString();
-        });
-      }
-      
-      if (proc.stderr) {
-        proc.stderr.on('data', (data) => {
-          stderr += data.toString();
-        });
-      }
-      
-      // Handle process exit
-      proc.on('close', (exitCode) => {
-        resolve({
-          stdout,
-          stderr,
-          exitCode: exitCode !== null ? exitCode : 1,
-        });
-      });
-      
-      // Handle process error
-      proc.on('error', (error) => {
-        resolve({
-          stdout,
-          stderr: error.message,
-          exitCode: 1,
-          error: error.message,
-        });
-      });
-      
-      // Handle timeout
-      if (config.timeout) {
-        setTimeout(() => {
-          // Kill process if it's still running
-          if (proc.connected) {
-            proc.kill();
-            resolve({
-              stdout,
-              stderr: 'Execution timed out',
-              exitCode: 124, // Standard timeout exit code
-              error: 'Execution timed out',
-            });
-          }
-        }, config.timeout);
-      }
-    });
-  }
-
-  /**
-   * Gets execution command for container
-   * @param containerPath Path to code file in container
+   * Gets execution command for a programming language
    * @param language Programming language
    * @returns Command to execute
    */
-  private getExecutionCommandForContainer(containerPath: string, language: string): { command: string, args: string[] } {
-    const commands: Record<string, { command: string, args: string[] }> = {
-      [ProgrammingLanguage.JAVASCRIPT]: { command: 'node', args: [containerPath] },
-      [ProgrammingLanguage.TYPESCRIPT]: { command: 'ts-node', args: [containerPath] },
-      [ProgrammingLanguage.PYTHON]: { command: 'python', args: [containerPath] },
-      [ProgrammingLanguage.BASH]: { command: 'bash', args: [containerPath] },
-      [ProgrammingLanguage.RUBY]: { command: 'ruby', args: [containerPath] },
-    };
-    
-    return commands[language.toLowerCase()] || { command: 'cat', args: [containerPath] };
-  }
-
-  /**
-   * Gets default container image for a programming language
-   * @param language Programming language
-   * @returns Container image name
-   */
-  private getDefaultContainerImage(language: string): string {
-    const images: Record<string, string> = {
-      [ProgrammingLanguage.JAVASCRIPT]: 'node:lts-alpine',
-      [ProgrammingLanguage.TYPESCRIPT]: 'node:lts-alpine',
-      [ProgrammingLanguage.PYTHON]: 'python:3-alpine',
-      [ProgrammingLanguage.BASH]: 'alpine:latest',
-      [ProgrammingLanguage.RUBY]: 'ruby:alpine',
-    };
-    
-    return images[language.toLowerCase()] || 'alpine:latest';
-  }
-
-  /**
-   * Checks if Docker is available
-   * @returns True if Docker is available
-   */
-  private async isDockerAvailable(): Promise<boolean> {
-    try {
-      return new Promise((resolve) => {
-        const proc = childProcess.spawn('docker', ['--version'], {
-          timeout: 2000,
-          stdio: 'ignore',
-        });
-        
-        proc.on('close', (exitCode) => {
-          resolve(exitCode === 0);
-        });
-        
-        proc.on('error', () => {
-          resolve(false);
-        });
-      });
-    } catch (error) {
-      return false;
+  private getCommand(language: ProgrammingLanguage): string {
+    switch (language) {
+      case ProgrammingLanguage.JAVASCRIPT:
+        return 'node';
+      case ProgrammingLanguage.PYTHON:
+        return 'python';
+      case ProgrammingLanguage.TYPESCRIPT:
+        return 'ts-node';
+      default:
+        throw new Error(`Unsupported language: ${language}`);
     }
   }
 
@@ -509,28 +386,26 @@ export class RunCode extends BaseAction {
    * @param result Execution result
    * @returns Formatted result text
    */
-  private formatResult(result: ExecutionResult): string {
-    const status = result.success ? 'SUCCESS' : 'FAILURE';
-    const executionTimeStr = `${result.executionTime / 1000} seconds`;
-    
-    let output = `# Code Execution Result: ${status}\n\n`;
-    output += `**Execution Time:** ${executionTimeStr}\n`;
-    output += `**Exit Code:** ${result.exitCode}\n\n`;
+  private formatExecutionResult(result: ExecutionResult): string {
+    const parts = ['Code Execution Result:'];
     
     if (result.stdout) {
-      output += `## Standard Output\n\`\`\`\n${result.stdout}\n\`\`\`\n\n`;
-    } else {
-      output += `## Standard Output\n*(No output)*\n\n`;
+      parts.push(`Output:\n${result.stdout.trim()}`);
     }
     
     if (result.stderr) {
-      output += `## Standard Error\n\`\`\`\n${result.stderr}\n\`\`\`\n\n`;
+      const errorType = result.success ? 'Messages' : 'Errors';
+      parts.push(`${errorType}:\n${result.stderr.trim()}`);
     }
+    
+    parts.push(`Execution Time: ${result.executionTime}ms`);
+    parts.push(`Exit Code: ${result.exitCode}`);
+    parts.push(`Status: ${result.success ? 'Success' : 'Failed'}`);
     
     if (result.error) {
-      output += `## Error\n\`\`\`\n${result.error}\n\`\`\`\n\n`;
+      parts.push(`Error Details: ${result.error}`);
     }
     
-    return output;
+    return parts.join('\n');
   }
 } 

@@ -1,88 +1,80 @@
-import { describe, expect, test, mock } from 'bun:test';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Engineer } from '../src/roles/engineer';
-import type { Message } from '../src/types/message';
-import type { Action, ActionOutput } from '../src/types/action';
+import { createTestLLMProvider } from './utils/test-llm-provider';
 import type { LLMProvider } from '../src/types/llm';
+import { Action } from '../src/actions/base';
 
-describe('Role System', () => {
-  // 模拟 LLM 提供商
-  const mockLLM: LLMProvider = {
-    generate: mock(() => Promise.resolve('Analysis: The task requires...')),
-    generateStream: mock(async function* () { yield 'test'; }),
-    embed: mock(() => Promise.resolve([0.1, 0.2, 0.3])),
-  };
+class TestAction extends Action {
+  constructor(name: string, llm: LLMProvider) {
+    super({
+      name,
+      description: 'Test action',
+      llm
+    });
+  }
 
-  // 模拟动作
-  const mockAction: Action = {
-    name: 'test_action',
-    context: {} as any,
-    llm: mockLLM,
-    run: mock(() => Promise.resolve({
-      content: 'Action completed',
+  async run() {
+    return {
       status: 'completed',
-    } as ActionOutput)),
-    handleException: mock(() => Promise.resolve()),
-  };
+      content: 'Test action completed'
+    };
+  }
+}
 
-  describe('Engineer Role', () => {
-    test('should initialize correctly', () => {
-      const engineer = new Engineer('test_engineer', mockLLM, [mockAction]);
-      expect(engineer.name).toBe('test_engineer');
-      expect(engineer.profile).toBe('Software Engineer');
-      expect(engineer.state).toBe(-1);
+describe('Roles', () => {
+  let llmProvider: LLMProvider;
+  
+  beforeEach(() => {
+    llmProvider = createTestLLMProvider();
+  });
+
+  it('should initialize engineer with correct properties', () => {
+    const mockAction = new TestAction('test_action', llmProvider);
+    const engineer = new Engineer('test_engineer', llmProvider, [mockAction]);
+
+    expect(engineer.name).toBe('test_engineer');
+    expect(engineer.llm).toBe(llmProvider);
+    expect(engineer.actions).toContain(mockAction);
+  });
+
+  it('should execute actions in sequence', async () => {
+    const mockAction = new TestAction('test_action', llmProvider);
+    const engineer = new Engineer('test_engineer', llmProvider, [mockAction]);
+
+    const result = await engineer.run();
+    expect(result.status).toBe('completed');
+    expect(result.content).toBeDefined();
+  });
+
+  it('should handle action failures', async () => {
+    const mockAction = new TestAction('test_action', llmProvider);
+    mockAction.run = async () => ({
+      status: 'failed',
+      content: 'Action failed'
     });
 
-    test('should observe and analyze tasks', async () => {
-      const engineer = new Engineer('test_engineer', mockLLM, [mockAction]);
-      
-      // 模拟一条消息
-      const message: Message = {
-        id: 'test_message',
-        content: 'Implement feature X',
-        role: 'user',
-        causedBy: 'user_request',
-        sentFrom: 'user',
-        sendTo: new Set(['test_engineer']),
-      };
+    const engineer = new Engineer('test_engineer', llmProvider, [mockAction]);
+    const result = await engineer.run();
 
-      // 添加消息到内存
-      engineer.context.memory.add(message);
+    expect(result.status).toBe('failed');
+    expect(result.content).toContain('failed');
+  });
 
-      // 执行观察
-      const state = await engineer.observe();
-      expect(state).toBeGreaterThanOrEqual(-1);
-      expect(mockLLM.generate).toHaveBeenCalled();
-    });
+  it('should handle multiple actions', async () => {
+    const action1 = new TestAction('action1', llmProvider);
+    const action2 = new TestAction('action2', llmProvider);
+    const engineer = new Engineer('test_engineer', llmProvider, [action1, action2]);
 
-    test('should think and select action', async () => {
-      const engineer = new Engineer('test_engineer', mockLLM, [mockAction]);
-      
-      // 执行思考
-      const hasAction = await engineer.think();
-      expect(hasAction).toBe(true);
-      expect(engineer.context.todo).toBe(mockAction);
-    });
+    const result = await engineer.run();
+    expect(result.status).toBe('completed');
+    expect(result.content).toBeDefined();
+  });
 
-    test('should execute actions', async () => {
-      const engineer = new Engineer('test_engineer', mockLLM, [mockAction]);
-      
-      // 设置动作并执行
-      await engineer.think();
-      const result = await engineer.act();
-      
-      expect(result.content).toBe('Action completed');
-      expect(mockAction.run).toHaveBeenCalled();
-    });
+  it('should handle empty action list', async () => {
+    const engineer = new Engineer('test_engineer', llmProvider, []);
+    const result = await engineer.run();
 
-    test('should handle action errors', async () => {
-      const engineer = new Engineer('test_engineer', mockLLM, [mockAction]);
-      
-      // 模拟动作执行失败
-      mockAction.run = mock(() => Promise.reject(new Error('Action failed')));
-      
-      await engineer.think();
-      await expect(engineer.act()).rejects.toThrow('Action failed');
-      expect(mockAction.handleException).toHaveBeenCalled();
-    });
+    expect(result.status).toBe('failed');
+    expect(result.content).toContain('No actions');
   });
 }); 

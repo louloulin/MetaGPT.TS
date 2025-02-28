@@ -10,8 +10,8 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
-import { LLMProvider } from '../llm/base';
-import { Memory } from '../memory/base';
+import type { LLMProvider } from '../types/llm';
+import type { MemoryManager } from '../types/memory';
 
 /**
  * Context interface defining the core functionality for the context management system.
@@ -40,7 +40,7 @@ export interface Context {
   /**
    * Memory system for this context
    */
-  memory?: Memory;
+  memory?: MemoryManager;
   
   /**
    * Get a value from the context
@@ -132,7 +132,7 @@ export class ContextImpl implements Context {
   
   // Add typed llm and memory properties
   llm?: LLMProvider;
-  memory?: Memory;
+  memory?: MemoryManager;
   
   /**
    * Create a new context

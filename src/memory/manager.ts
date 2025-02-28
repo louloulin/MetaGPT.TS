@@ -76,6 +76,10 @@ export class MemoryManagerImpl implements MemoryManager {
     return messages.length;
   }
 
+  async getLast(n: number): Promise<Message[]> {
+    return this._working.getLast(n);
+  }
+
   get working(): MemoryManager {
     return this;
   }

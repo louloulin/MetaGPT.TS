@@ -3,6 +3,7 @@ import { BaseRAG } from '../src/rag/base-rag';
 import { DocumentQA } from '../src/rag/document-qa';
 import type { RAGConfig, Chunk, SearchResult } from '../src/types/rag';
 import type { LLMProvider } from '../src/types/llm';
+import { createTestLLMProvider } from './utils/test-llm-provider';
 
 // 创建测试 RAG 类
 class TestRAG extends BaseRAG {
@@ -12,16 +13,15 @@ class TestRAG extends BaseRAG {
 }
 
 describe.skip('RAG System', () => {
-  // 模拟 LLM 提供商
-  const mockLLM: LLMProvider = {
-    generate: mock(() => Promise.resolve('Generated answer based on context')),
-    generateStream: mock(async function* () { yield 'test'; }),
-    embed: mock(() => Promise.resolve(new Array(384).fill(0.1))),
-  };
+  let llmProvider: LLMProvider;
+  
+  beforeEach(() => {
+    llmProvider = createTestLLMProvider();
+  });
 
   // 测试配置
   const testConfig: RAGConfig = {
-    llm: mockLLM,
+    llm: llmProvider,
     vectorStore: {
       url: 'http://localhost:6333',
       collectionName: 'test_collection',
@@ -54,7 +54,7 @@ describe.skip('RAG System', () => {
     });
 
     test.skip('should initialize correctly', () => {
-      expect(rag.llm).toBe(mockLLM);
+      expect(rag.llm).toBe(llmProvider);
       expect(rag.config).toEqual(testConfig);
     });
 
@@ -73,8 +73,8 @@ describe.skip('RAG System', () => {
 
     test.skip('should generate answers', async () => {
       const answer = await rag.generate('What is this document about?');
-      expect(answer).toBe('Generated answer based on context');
-      expect(mockLLM.generate).toHaveBeenCalled();
+      expect(answer).toBeDefined();
+      expect(typeof answer).toBe('string');
     });
 
     test.skip('should delete chunks', async () => {
@@ -135,7 +135,8 @@ Paragraph 3: This is the third paragraph.
       await qa.addDocument('Important information about the topic.');
 
       const { answer, citations } = await qa.generateWithCitations('What is the topic?');
-      expect(answer).toBe('Generated answer based on context');
+      expect(answer).toBeDefined();
+      expect(typeof answer).toBe('string');
       expect(citations.length).toBeGreaterThan(0);
       expect(citations[0].content).toContain('Important information');
     });

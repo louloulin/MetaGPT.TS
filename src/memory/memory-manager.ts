@@ -69,6 +69,10 @@ export class MemoryManagerImpl implements MemoryManager {
     return this.messages.length;
   }
 
+  async getLast(n: number): Promise<Message[]> {
+    return this.messages.slice(-n);
+  }
+
   // Alias for working memory
   get working(): MemoryManager {
     return this;

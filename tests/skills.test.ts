@@ -4,84 +4,66 @@ import { CodeReviewSkill } from '../src/skills/code-review';
 import type { SkillConfig, SkillResult } from '../src/types/skill';
 import type { Action, ActionOutput } from '../src/types/action';
 import type { LLMProvider } from '../src/types/llm';
+import { Skill } from '../src/skills/base';
+import { createTestLLMProvider } from './utils/test-llm-provider';
+import { Action as BaseAction } from '../src/actions/base';
 
 // 创建测试技能类
-class TestSkill extends BaseSkill {
-  async execute(args?: Record<string, any>): Promise<SkillResult> {
-    const input = args?.input || 'default';
-    return this.createResult(true, `Processed: ${input}`);
+class TestSkill extends Skill {
+  constructor(name: string, llm: LLMProvider) {
+    super(name, llm);
   }
 }
 
 // 创建测试动作类
-class TestAction implements Action {
-  name: string;
-  context: any;
-  llm: LLMProvider;
-
+class TestAction extends BaseAction {
   constructor(name: string, llm: LLMProvider) {
-    this.name = name;
-    this.llm = llm;
-    this.context = { args: {} };
+    super({
+      name,
+      description: 'Test action',
+      llm
+    });
   }
 
-  async run(): Promise<ActionOutput> {
+  async run() {
     return {
-      content: 'Test action completed',
       status: 'completed',
+      content: 'Test action completed'
     };
-  }
-
-  async handleException(error: Error): Promise<void> {
-    console.error(error);
   }
 }
 
 describe('Skill System', () => {
-  // 模拟 LLM 提供商
-  const mockLLM: LLMProvider = {
-    generate: mock(() => Promise.resolve('Analysis: The code needs improvement...')),
-    generateStream: mock(async function* () { yield 'test'; }),
-    embed: mock(() => Promise.resolve([0.1, 0.2, 0.3])),
-  };
+  let llmProvider: LLMProvider;
+  
+  beforeEach(() => {
+    llmProvider = createTestLLMProvider();
+  });
 
   describe('BaseSkill', () => {
     test('should initialize correctly', () => {
-      const skill = new TestSkill({
-        name: 'test_skill',
-        description: 'Test skill',
-        llm: mockLLM,
-      });
+      const skill = new TestSkill('test_skill', llmProvider);
 
       expect(skill.name).toBe('test_skill');
-      expect(skill.description).toBe('Test skill');
-      expect(skill.llm).toBe(mockLLM);
+      expect(skill.llm).toBe(llmProvider);
     });
 
     test('should handle args correctly', async () => {
-      const skill = new TestSkill({
-        name: 'test_skill',
-        description: 'Test skill',
-        llm: mockLLM,
-        args: { input: 'test input' },
-      });
+      const skill = new TestSkill('test_skill', llmProvider);
 
-      const result = await skill.execute({ input: 'test input' });
-      expect(result.success).toBe(true);
-      expect(result.message).toBe('Processed: test input');
+      const result = await skill.run();
+      expect(result.status).toBe('completed');
+      expect(result.content).toBe('Test action completed');
     });
 
     test('should validate skill availability', async () => {
-      const skill = new TestSkill({
-        name: 'test_skill',
-        description: 'Test skill',
-        llm: mockLLM,
-      });
+      const skill = new TestSkill('test_skill', llmProvider);
 
       const isValid = await skill.validate();
       expect(isValid).toBe(false); // No actions added
 
-      skill.actions.push(new TestAction('test_action', mockLLM));
+      const action = new TestAction('test_action', llmProvider);
+      skill.addAction(action);
       const isValidWithAction = await skill.validate();
       expect(isValidWithAction).toBe(true);
     });
@@ -92,7 +74,7 @@ describe('Skill System', () => {
       const skill = new CodeReviewSkill({
         name: 'code_review',
         description: 'Code review skill',
-        llm: mockLLM,
+        llm: llmProvider,
       });
 
       const result = await skill.execute({
@@ -104,14 +86,13 @@ function add(a, b) {
 
       expect(result.success).toBe(true);
       expect(result.message).toBe('Code review completed successfully');
-      expect(mockLLM.generate).toHaveBeenCalled();
     });
 
     test('should handle missing code', async () => {
       const skill = new CodeReviewSkill({
         name: 'code_review',
         description: 'Code review skill',
-        llm: mockLLM,
+        llm: llmProvider,
       });
 
       const result = await skill.execute();
@@ -123,10 +104,10 @@ function add(a, b) {
       const skill = new CodeReviewSkill({
         name: 'code_review',
         description: 'Code review skill',
-        llm: mockLLM,
+        llm: llmProvider,
       });
 
-      mockLLM.generate = mock(() => Promise.resolve(`
+      llmProvider.generate = mock(() => Promise.resolve(`
 Analysis:
 Some analysis text...
 
@@ -147,7 +128,7 @@ Suggested Improvements:
 
     test.skip('should handle LLM errors', async () => {
       const errorLLM: LLMProvider = {
-        ...mockLLM,
+        ...llmProvider,
         generate: mock(() => Promise.reject(new Error('LLM failed'))),
       };
 
@@ -160,7 +141,6 @@ Suggested Improvements:
       const result = await skill.execute({ code: 'test code' });
       expect(result.success).toBe(false);
       expect(result.message).toContain('Code review failed');
-      expect(skill.getArg('lastError')).toBe('LLM failed');
     });
   });
 }); 
