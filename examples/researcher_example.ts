@@ -1,7 +1,7 @@
 import { Researcher } from '../src/roles/researcher';
 import { logger } from '../src/utils/logger';
 import { UserMessage } from '../src/types/message';
-import { createLLMProvider } from '../../examples/utils/llm-provider';
+import { createLLMProvider } from './llm-provider';
 import { ResearchTopicType, ReliabilityRating } from '../src/actions/research';
 
 // @ts-ignore

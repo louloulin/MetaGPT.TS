@@ -1,34 +1,13 @@
 import { Teacher } from '../src/roles/teacher';
-import { VercelLLMProvider } from '../src/provider/vercel-llm';
 import { logger } from '../src/utils/logger';
 import { UserMessage } from '../src/types/message';
+import { createLLMProvider } from './llm-provider';
 
 async function main() {
-  const apiKey = process.env.DASHSCOPE_API_KEY ? process.env.DASHSCOPE_API_KEY : "sk-bc977c4e31e542f1a34159cb42478198";
-
   // 创建 LLM Provider
-  const provider = new VercelLLMProvider({
-    providerType: 'qwen',
-    apiKey :apiKey,
-    model: 'qwen-plus-2025-01-25',
-    baseURL: process.env.QWEN_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    extraConfig: {
-      qwenOptions: {
-        debug: true,
-        stream: true,
-        max_tokens: 300,
-        timeout: 60000,
-        retry: 2,
-      },
-      generateOptions: {
-        system: '你是一位专业的教育专家，擅长简洁有效地回答教育相关问题。请用简短的方式回应，重点突出关键信息。每个回答控制在200字以内。',
-        temperature: 0.3,
-        top_p: 0.1,
-        frequency_penalty: 1.0,
-        presence_penalty: 1.0,
-      }
-    }
-  });
+  const provider = createLLMProvider(
+    '你是一位专业的教育专家，擅长简洁有效地回答教育相关问题。请用简短的方式回应，重点突出关键信息。每个回答控制在200字以内。'
+  );
 
   // 创建 Teacher 实例
   const teacher = new Teacher('Math Teacher', provider, {

@@ -1,7 +1,7 @@
 import { Sales } from '../src/roles/sales';
 import { logger } from '../src/utils/logger';
 import { UserMessage } from '../src/types/message';
-import { createLLMProvider } from '../../examples/utils/llm-provider';
+import { createLLMProvider } from './llm-provider';
 import { SearchProviderType } from '../src/config/search';
 
 // @ts-ignore
@@ -52,26 +52,42 @@ async function main() {
   // 示例 1: 产品介绍
   logger.info('=== 产品介绍 ===');
   const inquiry = new UserMessage('请介绍一下你们的产品有哪些版本？各自有什么特点？');
-  const introduction = await sales.handleMessage(inquiry);
-  logger.info('产品介绍:', introduction);
+  sales.context.memory.add(inquiry);
+  await sales.think();
+  if (sales.context.todo) {
+    const introduction = await sales.context.todo.run();
+    logger.info('产品介绍:', introduction);
+  }
 
   // 示例 2: 价格咨询
   logger.info('\n=== 价格咨询 ===');
   const pricing = new UserMessage('专业版的具体价格是多少？包含哪些服务？');
-  const priceInfo = await sales.handleMessage(pricing);
-  logger.info('价格信息:', priceInfo);
+  sales.context.memory.add(pricing);
+  await sales.think();
+  if (sales.context.todo) {
+    const priceInfo = await sales.context.todo.run();
+    logger.info('价格信息:', priceInfo);
+  }
 
   // 示例 3: 功能对比
   logger.info('\n=== 功能对比 ===');
   const comparison = new UserMessage('基础版和专业版的主要区别是什么？值得升级吗？');
-  const comparisonInfo = await sales.handleMessage(comparison);
-  logger.info('功能对比:', comparisonInfo);
+  sales.context.memory.add(comparison);
+  await sales.think();
+  if (sales.context.todo) {
+    const comparisonInfo = await sales.context.todo.run();
+    logger.info('功能对比:', comparisonInfo);
+  }
 
   // 示例 4: 技术咨询
   logger.info('\n=== 技术咨询 ===');
   const technical = new UserMessage('API 访问有什么限制吗？支持哪些编程语言？');
-  const technicalInfo = await sales.handleMessage(technical);
-  logger.info('技术信息:', technicalInfo);
+  sales.context.memory.add(technical);
+  await sales.think();
+  if (sales.context.todo) {
+    const technicalInfo = await sales.context.todo.run();
+    logger.info('技术信息:', technicalInfo);
+  }
 }
 
 // 运行示例

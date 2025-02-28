@@ -211,6 +211,7 @@ export class Research extends BaseAction {
       // Parse the research result
       let result: ResearchResult;
       try {
+        logger.info(`[${this.name}] Research result: ${response}`);
         result = JSON.parse(response);
         
         // Ensure all required fields exist

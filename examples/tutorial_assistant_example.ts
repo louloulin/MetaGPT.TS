@@ -1,7 +1,7 @@
 import { TutorialAssistant, RunMode } from '../src/roles/tutorial-assistant';
 import { logger } from '../src/utils/logger';
 import { UserMessage } from '../src/types/message';
-import { createLLMProvider } from '../../examples/utils/llm-provider';
+import { createLLMProvider } from './llm-provider';
 
 // @ts-ignore
 declare const process: any;
