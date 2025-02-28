@@ -8,6 +8,8 @@
 import { BaseAction } from './base-action';
 import type { ActionOutput } from '../types/action';
 import { logger } from '../utils/logger';
+import { parseJsonWithZod } from '../utils/common';
+import { z } from 'zod';
 
 export enum TutorialLevel {
   BEGINNER = 'BEGINNER',
@@ -22,35 +24,57 @@ export enum TutorialFormat {
   REFERENCE_GUIDE = 'REFERENCE_GUIDE'
 }
 
-export interface Directory {
-  title: string;
-  directory: Array<{ [key: string]: string[] }>;
-}
+// 使用Zod定义Directory的模式
+export const DirectorySchema = z.object({
+  title: z.string(),
+  sections: z.array(
+    z.object({
+      title: z.string(),
+      subsections: z.array(
+        z.object({
+          title: z.string(),
+          content: z.string().optional()
+        })
+      )
+    })
+  )
+});
 
-export interface TutorialSection {
-  title: string;
-  content: string;
-  code_examples?: string[];
-  key_points?: string[];
-  exercises?: Array<{
-    description: string;
-    solution?: string;
-  }>;
-}
+// 从Zod模式推断类型
+export type Directory = z.infer<typeof DirectorySchema>;
 
-export interface Tutorial {
-  title: string;
-  description: string;
-  prerequisites: string[];
-  learning_objectives: string[];
-  difficulty_level: TutorialLevel;
-  format: TutorialFormat;
-  estimated_time: string;
-  sections: TutorialSection[];
-  summary: string;
-  further_reading?: string[];
-  keywords: string[];
-}
+// 使用Zod定义TutorialSection的模式
+export const TutorialSectionSchema = z.object({
+  title: z.string(),
+  content: z.string(),
+  code_examples: z.array(z.string()).optional(),
+  key_points: z.array(z.string()).optional(),
+  exercises: z.array(
+    z.object({
+      description: z.string(),
+      solution: z.string().optional()
+    })
+  ).optional()
+});
+
+// 使用Zod定义Tutorial的模式
+export const TutorialSchema = z.object({
+  title: z.string(),
+  description: z.string(),
+  prerequisites: z.array(z.string()),
+  learning_objectives: z.array(z.string()),
+  difficulty_level: z.nativeEnum(TutorialLevel),
+  format: z.nativeEnum(TutorialFormat),
+  estimated_time: z.string(),
+  sections: z.array(TutorialSectionSchema),
+  summary: z.string(),
+  further_reading: z.array(z.string()).optional(),
+  keywords: z.array(z.string())
+});
+
+// 从Zod模式推断类型
+export type TutorialSection = z.infer<typeof TutorialSectionSchema>;
+export type Tutorial = z.infer<typeof TutorialSchema>;
 
 export interface WriteTutorialConfig {
   topic: string;
@@ -111,11 +135,46 @@ The directory should be:
 2. Well-organized with main sections and subsections
 3. Cover all important aspects of the topic
 
-Provide your directory in a structured JSON format matching the Directory interface.`;
+Provide your directory in a structured JSON format matching the following schema:
+{
+  "title": "Tutorial Title",
+  "sections": [
+    {
+      "title": "Section Title",
+      "subsections": [
+        {
+          "title": "Subsection Title",
+          "content": "Optional brief description of subsection content"
+        }
+      ]
+    }
+  ]
+}`;
 
     try {
       const directoryResponse = await this.llm.chat(systemPrompt + "\n\nTopic: " + topic);
-      const directory = JSON.parse(directoryResponse) as Directory;
+      console.log(directoryResponse);
+      
+      // 使用Zod验证解析JSON
+      const directory = parseJsonWithZod<Directory>(
+        directoryResponse, 
+        DirectorySchema,
+        // 提供默认值，避免解析失败时抛出错误
+        {
+          title: topic,
+          sections: [
+            {
+              title: "Introduction",
+              subsections: [
+                {
+                  title: "Overview",
+                  content: "Basic introduction to the topic"
+                }
+              ]
+            }
+          ]
+        }
+      );
 
       return {
         status: 'completed',
@@ -134,13 +193,13 @@ Provide your directory in a structured JSON format matching the Directory interf
 
 export class WriteContent extends BaseAction {
   language: string;
-  directory: { [key: string]: string[] };
+  directory: Directory;
 
   constructor(config: { 
     name?: string;
     llm: any;
     language?: string;
-    directory: { [key: string]: string[] };
+    directory: Directory;
     memory?: any;
   }) {
     const messages: any[] = [];
@@ -179,13 +238,19 @@ The content should be:
 Write the content in ${this.language} language.`;
 
     try {
-      const sectionKey = Object.keys(this.directory)[0];
-      const subsections = this.directory[sectionKey];
+      // 获取第一个章节
+      const section = this.directory.sections[0];
+      if (!section) {
+        return {
+          status: 'failed',
+          content: 'No sections found in directory'
+        };
+      }
 
       const contentPrompt = `
 Topic: ${topic}
-Section: ${sectionKey}
-Subsections: ${JSON.stringify(subsections)}
+Section: ${section.title}
+Subsections: ${JSON.stringify(section.subsections.map(sub => sub.title))}
 
 Please write detailed content for this section and its subsections.`;
 
@@ -240,25 +305,17 @@ The tutorial should be:
 5. Include exercises if requested
 6. Target the specified audience
 
-Provide your tutorial in a structured JSON format matching the Tutorial interface.`;
+Provide your tutorial in a structured JSON format matching the Tutorial schema.`;
 
     try {
       const tutorialResponse = await this.llm.chat(systemPrompt + "\n\nTutorial request: " + JSON.stringify(config));
-      const tutorial = JSON.parse(tutorialResponse);
-
-      return {
-        title: tutorial.title || config.topic,
-        description: tutorial.description || '',
-        prerequisites: tutorial.prerequisites || [],
-        learning_objectives: tutorial.learning_objectives || [],
-        difficulty_level: tutorial.difficulty_level || config.level || TutorialLevel.BEGINNER,
-        format: tutorial.format || config.format || TutorialFormat.STEP_BY_STEP,
-        estimated_time: tutorial.estimated_time || '30 minutes',
-        sections: tutorial.sections || [],
-        summary: tutorial.summary || '',
-        further_reading: tutorial.further_reading || [],
-        keywords: tutorial.keywords || []
-      };
+      
+      // 使用Zod验证解析JSON
+      return parseJsonWithZod<Tutorial>(
+        tutorialResponse, 
+        TutorialSchema,
+        this.createFallbackTutorial(config)
+      );
     } catch (error) {
       logger.error('[WriteTutorial] Error generating tutorial:', error);
       return this.createFallbackTutorial(config);

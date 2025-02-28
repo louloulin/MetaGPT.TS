@@ -49,24 +49,19 @@ export class TutorialAssistant extends BaseRole {
   topic = '';
   mainTitle = '';
   totalContent = '';
-
+  
   constructor(config: TutorialAssistantConfig) {
     super(
-      'Stitch',
-      'Tutorial Assistant',
-      'Generate tutorial documents',
-      'Strictly follow Markdown\'s syntax, with neat and standardized layout',
+      'TutorialAssistant',
+      '教程助手，可以生成高质量的教程文档',
+      '生成高质量、结构清晰的教程文档',
+      '输出应该是完整的Markdown格式文档，内容应该专业、详细、通俗易懂，应该包含适当的标题、小节和示例',
       []
     );
     
-    logger.info('[TutorialAssistant] Initializing with config:', {
-      language: config.language || 'Chinese',
-      outputDir: config.outputDir || path.join(process.cwd(), 'tutorials')
-    });
-    
-    this.language = config.language || 'Chinese';
-    this.outputDir = config.outputDir || path.join(process.cwd(), 'tutorials');
     this.llm = config.llm;
+    this.language = config.language || 'Chinese';
+    this.outputDir = config.outputDir || './output';
     
     // 初始化动作
     this.initializeActions();
@@ -85,7 +80,7 @@ export class TutorialAssistant extends BaseRole {
     });
     
     logger.info('[TutorialAssistant] Created WriteDirectory action');
-    this.actions = [writeDirectory];
+    this.addAction(writeDirectory);
   }
 
   /**
@@ -98,26 +93,28 @@ export class TutorialAssistant extends BaseRole {
     this.mainTitle = directory.title;
     this.totalContent += `# ${this.mainTitle}\n\n`;
     
-    // 将所有章节内容生成动作添加到动作列表
-    const actions = [...this.actions];
+    // 创建章节内容生成动作列表
+    const contentActions: WriteContent[] = [];
     
-    logger.info(`[TutorialAssistant] Processing ${directory.directory.length} sections`);
+    logger.info(`[TutorialAssistant] Processing ${directory.sections.length} sections`);
     
-    for (const section of directory.directory) {
-      const sectionKey = Object.keys(section)[0];
-      logger.info(`[TutorialAssistant] Creating WriteContent action for section: ${sectionKey}`);
+    for (const section of directory.sections) {
+      logger.info(`[TutorialAssistant] Creating WriteContent action for section: ${section.title}`);
       
       const writeContent = new WriteContent({
         llm: this.llm,
         language: this.language,
-        directory: section,
+        directory: {
+          title: directory.title,
+          sections: [section]
+        },
       });
       
-      actions.push(writeContent);
+      contentActions.push(writeContent);
     }
     
-    logger.info(`[TutorialAssistant] Updated actions list, now contains ${actions.length} actions`);
-    this.actions = actions;
+    logger.info(`[TutorialAssistant] Adding ${contentActions.length} content actions`);
+    this.addActions(contentActions);
   }
 
   /**
@@ -262,7 +259,8 @@ export class TutorialAssistant extends BaseRole {
         
         // 检查是否为WriteContent动作
         if (action instanceof WriteContent) {
-          const sectionTitle = Object.keys(action.directory)[0];
+          // 获取章节标题
+          const sectionTitle = action.directory.sections[0].title;
           logger.info(`[TutorialAssistant] Generating content for section: "${sectionTitle}" with streaming`);
           
           // 添加章节标题到总内容
@@ -324,15 +322,18 @@ export class TutorialAssistant extends BaseRole {
   }
 
   /**
-   * 生成内容的提示词
+   * 生成内容提示词
    * @param topic 教程主题
    * @param directory 目录结构
    * @returns 提示词
    */
-  private generateContentPrompt(topic: string, directory: Record<string, string[]>): string {
+  private generateContentPrompt(topic: string, directory: Directory): string {
     const language = this.language === 'Chinese' ? '中文' : 'English';
-    const sectionTitle = Object.keys(directory)[0];
-    const subsections = directory[sectionTitle];
+    
+    // 获取第一个章节
+    const section = directory.sections[0];
+    const sectionTitle = section.title;
+    const subsections = section.subsections.map(sub => sub.title);
     
     return `请为主题"${topic}"下的"${sectionTitle}"章节编写详细内容。请包含以下小节：${subsections.join('、')}。
 
