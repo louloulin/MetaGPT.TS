@@ -1,10 +1,9 @@
 import type { LLMConfig, LLMProvider } from '../../src/types/llm';
+import { vi } from 'vitest';
 
 export interface MockLLMConfig {
   responses?: Record<string, string>;
   generateFn?: (prompt: string) => Promise<string>;
-  chatFn?: (message: string) => Promise<string>;
-  embeddingFn?: (text: string) => Promise<number[]>;
 }
 
 /**
@@ -12,10 +11,8 @@ export interface MockLLMConfig {
  */
 export class MockLLM implements LLMProvider {
   private responses: Record<string, string>;
-  private generateFn?: (prompt: string) => Promise<string>;
-  private chatFn?: (message: string) => Promise<string>;
-  private embeddingFn?: (text: string) => Promise<number[]>;
   private systemPrompt: string = '';
+  private generateFn?: (prompt: string) => Promise<string>;
 
   /**
    * Creates a new MockLLM
@@ -25,8 +22,6 @@ export class MockLLM implements LLMProvider {
   constructor(config: MockLLMConfig = {}) {
     this.responses = config.responses || {};
     this.generateFn = config.generateFn;
-    this.chatFn = config.chatFn;
-    this.embeddingFn = config.embeddingFn;
   }
 
   /**
@@ -34,36 +29,32 @@ export class MockLLM implements LLMProvider {
    * 
    * @returns Provider name
    */
-  getName(): string {
-    return 'MockLLM';
-  }
+  getName = vi.fn().mockReturnValue('MockLLM');
 
   /**
    * Gets the model being used
    * 
    * @returns Model name
    */
-  getModel(): string {
-    return 'mock-model';
-  }
+  getModel = vi.fn().mockReturnValue('mock-model');
 
   /**
    * Sets the system prompt for the LLM
    * 
    * @param prompt System prompt to set
    */
-  setSystemPrompt(prompt: string): void {
+  setSystemPrompt = vi.fn().mockImplementation((prompt: string) => {
     this.systemPrompt = prompt;
-  }
+  });
 
   /**
    * Gets the current system prompt
    * 
    * @returns Current system prompt
    */
-  getSystemPrompt(): string {
+  getSystemPrompt = vi.fn().mockImplementation(() => {
     return this.systemPrompt;
-  }
+  });
 
   /**
    * Send a chat message to the LLM
@@ -71,9 +62,10 @@ export class MockLLM implements LLMProvider {
    * @param message Message to send
    * @returns LLM response
    */
-  async chat(message: string): Promise<string> {
-    if (this.chatFn) {
-      return this.chatFn(message);
+  chat = vi.fn().mockImplementation(async (message: string) => {
+    // If generateFn is provided, use it
+    if (this.generateFn) {
+      return this.generateFn(message);
     }
 
     // Try to find a matching response by checking if the message contains any of the keys
@@ -124,7 +116,7 @@ export class MockLLM implements LLMProvider {
     }
 
     return 'Mock response';
-  }
+  });
 
   /**
    * Generate text completion
@@ -133,7 +125,8 @@ export class MockLLM implements LLMProvider {
    * @param config Optional configuration overrides
    * @returns Generated text
    */
-  async generate(prompt: string, config?: Partial<LLMConfig>): Promise<string> {
+  generate = vi.fn().mockImplementation(async (prompt: string, config?: Partial<LLMConfig>) => {
+    // If generateFn is provided, use it
     if (this.generateFn) {
       return this.generateFn(prompt);
     }
@@ -143,55 +136,6 @@ export class MockLLM implements LLMProvider {
       if (prompt.includes(key)) {
         return response;
       }
-    }
-
-    // Special handling for code summarization
-    if (prompt.includes('summarize') && prompt.includes('code')) {
-      return JSON.stringify({
-        title: 'User Authentication Module',
-        description: 'Handles user authentication and session management',
-        language: 'TypeScript',
-        primary_purpose: 'Manage user authentication flow',
-        line_count: 150,
-        complexity: 'MEDIUM',
-        components: [
-          {
-            name: 'AuthService',
-            type: 'CLASS',
-            description: 'Main authentication service class'
-          }
-        ],
-        functional_areas: [
-          {
-            name: 'Authentication',
-            description: 'User login and session management'
-          }
-        ],
-        dependencies: {
-          imports: ['@types/jwt', '@types/bcrypt'],
-          exports: ['AuthService', 'AuthConfig']
-        },
-        design_patterns: [
-          {
-            name: 'Singleton',
-            usage: 'AuthService is implemented as a singleton'
-          }
-        ],
-        potential_improvements: [
-          {
-            description: 'Add refresh token support',
-            priority: 'HIGH',
-            implementation_difficulty: 'MODERATE',
-            code_example: 'implement refreshToken method'
-          }
-        ],
-        documentation: {
-          quality: 'GOOD',
-          coverage_percentage: 85,
-          missing_documentation: ['Error handling section'],
-          suggestions: ['Add API documentation']
-        }
-      });
     }
 
     // Special handling for research topics
@@ -229,25 +173,14 @@ export class MockLLM implements LLMProvider {
         key_takeaways: ["Takeaway 1"],
         summary: "Mock research summary",
         confidence_score: 0.85,
-        limitations: ["Some sources have reliability concerns", "findings have low confidence"],
+        limitations: ["Some sources have reliability concerns"],
         future_research_directions: ["Direction 1"]
       });
     }
 
-    // If no specific response is found, try to find a response based on the instruction
-    const instructionMatch = prompt.match(/instruction:\s*"([^"]+)"/i);
-    if (instructionMatch) {
-      const instruction = instructionMatch[1];
-      for (const [key, response] of Object.entries(this.responses)) {
-        if (instruction.includes(key)) {
-          return response;
-        }
-      }
-    }
-
     // Return empty array as JSON string for unknown prompts
     return '[]';
-  }
+  });
 
   /**
    * Create text embeddings
@@ -255,12 +188,8 @@ export class MockLLM implements LLMProvider {
    * @param text Input text
    * @returns Embedding vector
    */
-  async embed(text: string): Promise<number[]> {
-    if (this.embeddingFn) {
-      return this.embeddingFn(text);
-    }
-
+  embed = vi.fn().mockImplementation(async (text: string) => {
     // Return a mock embedding vector of length 10
     return Array(10).fill(0).map(() => Math.random());
-  }
+  });
 } 

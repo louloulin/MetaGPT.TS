@@ -12,15 +12,10 @@ import type { PathLike } from 'fs';
 // Setup mocks before tests
 beforeEach(() => {
   // Mock fs.mkdir
-  vi.spyOn(fs, 'mkdir').mockImplementation((path: PathLike) => {
-    if (path === undefined) {
-      throw new Error('Path is undefined');
-    }
-    return Promise.resolve(undefined);
-  });
-  
-  // Mock fs.writeFile
-  vi.spyOn(fs, 'writeFile').mockResolvedValue(undefined);
+  vi.mock('fs/promises', () => ({
+    mkdir: vi.fn().mockResolvedValue(undefined),
+    writeFile: vi.fn().mockResolvedValue(undefined)
+  }));
   
   // Mock path.join
   vi.spyOn(path, 'join').mockImplementation((...args) => {

@@ -152,10 +152,7 @@ export class Research extends BaseAction {
       const query = this.getArg<string>('query');
       
       if (!query) {
-        return this.createOutput(
-          'No research query provided. Please provide a topic or question to research.',
-          'failed'
-        );
+        throw new Error('No research query provided. Please provide a topic or question to research.');
       }
 
       // Get optional configuration
@@ -180,20 +177,15 @@ export class Research extends BaseAction {
       });
 
       // Format the research result
-      const formattedResult = this.formatResearchResult(researchResult);
+      const formattedResult = JSON.stringify(researchResult);
       
       return this.createOutput(
         formattedResult,
-        'completed',
-        researchResult
+        'completed'
       );
     } catch (error) {
       logger.error(`[${this.name}] Error in Research action:`, error);
-      await this.handleException(error as Error);
-      return this.createOutput(
-        `Failed to perform research: ${error}`,
-        'failed'
-      );
+      throw error;
     }
   }
 
@@ -243,15 +235,14 @@ export class Research extends BaseAction {
         // Validate the research result
         this.validateResearchResult(result, config);
         
+        return result;
       } catch (parseError: unknown) {
         logger.error(`[${this.name}] Failed to parse research result:`, parseError);
-        return this.createFallbackResearchResult(config.query, parseError instanceof Error ? parseError : new Error(String(parseError)));
+        throw parseError;
       }
-      
-      return result;
-    } catch (error: unknown) {
+    } catch (error) {
       logger.error(`[${this.name}] Error performing research:`, error);
-      return this.createFallbackResearchResult(config.query, error instanceof Error ? error : new Error(String(error)));
+      throw error;
     }
   }
 
