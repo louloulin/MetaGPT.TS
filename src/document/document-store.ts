@@ -11,7 +11,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import type { Document, IndexableDocument } from '../types/document';
-import { DocumentImpl, IndexableDocumentImpl } from '../types/document';
+import { DocumentImpl, IndexableDocumentImpl, DocumentStatus } from '../types/document';
 import { z } from 'zod';
 
 /**
@@ -177,7 +177,10 @@ export class BasicDocumentStore implements DocumentStore {
    * @param config Store configuration
    */
   constructor(config: Partial<DocumentStoreConfig> = {}) {
-    this.config = DocumentStoreConfigSchema.parse(config);
+    this.config = DocumentStoreConfigSchema.parse({
+      ...DocumentStoreConfigSchema.parse({}),
+      ...config
+    });
   }
   
   /**
@@ -187,65 +190,45 @@ export class BasicDocumentStore implements DocumentStore {
    * @returns Document load result
    */
   async loadDocument(filePath: string, options?: Partial<DocumentStoreConfig>): Promise<DocumentLoadResult> {
-    const mergedConfig = {
-      ...this.config,
-      ...options,
-    };
-    
     try {
-      // Check if file exists and get stats
-      const stats = await fs.stat(filePath);
+      // 统一使用正斜杠
+      const normalizedPath = filePath.replace(/\\/g, '/');
       
-      // Check if it's a file
-      if (!stats.isFile()) {
+      // 检查文件是否存在
+      try {
+        await fs.access(normalizedPath);
+      } catch (error) {
         return {
-          document: new DocumentImpl({ path: filePath }),
+          document: new DocumentImpl({ path: normalizedPath, content: '' }),
           success: false,
-          error: 'Path does not point to a file',
+          error: `File not found: ${normalizedPath}`
         };
       }
+
+      // 读取文件内容
+      const content = await fs.readFile(normalizedPath, 'utf-8');
       
-      // Check file size
-      if (stats.size > mergedConfig.parsingOptions.maxSize) {
-        return {
-          document: new DocumentImpl({ path: filePath }),
-          success: false,
-          error: `File size exceeds the maximum allowed size of ${mergedConfig.parsingOptions.maxSize} bytes`,
-        };
-      }
-      
-      // Check file extension
-      const ext = path.extname(filePath).toLowerCase();
-      if (!mergedConfig.parsingOptions.supportedExtensions.includes(ext)) {
-        return {
-          document: new DocumentImpl({ path: filePath }),
-          success: false,
-          error: `Unsupported file extension: ${ext}`,
-        };
-      }
-      
-      // Load document using DocumentImpl.fromPath
-      const document = await DocumentImpl.fromPath(filePath);
-      
-      // Store the document in memory
-      this.documents.set(document.path || filePath, document);
-      
+      // 创建文档对象
+      const document = new DocumentImpl({
+        path: normalizedPath,
+        content: content,
+        status: DocumentStatus.DRAFT,
+        name: path.basename(normalizedPath)
+      });
+
+      // 存储文档
+      this.documents.set(normalizedPath, document);
+
       return {
         document,
-        success: true,
-        metadata: {
-          size: stats.size,
-          extension: ext,
-          lastModified: stats.mtime.toISOString(),
-        },
+        success: true
       };
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`Failed to load document from ${filePath}:`, error);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       return {
-        document: new DocumentImpl({ path: filePath }),
+        document: new DocumentImpl({ path: filePath, content: '' }),
         success: false,
-        error: `Failed to load document: ${message}`,
+        error: `Failed to load document: ${errorMessage}`
       };
     }
   }
@@ -257,53 +240,25 @@ export class BasicDocumentStore implements DocumentStore {
    * @returns Array of document load results
    */
   async loadDocuments(dirPath: string, options?: Partial<DocumentStoreConfig>): Promise<DocumentLoadResult[]> {
-    const results: DocumentLoadResult[] = [];
-    
     try {
-      // Check if directory exists
-      const stats = await fs.stat(dirPath);
-      if (!stats.isDirectory()) {
-        return [{
-          document: new DocumentImpl({ path: dirPath }),
-          success: false,
-          error: 'Path does not point to a directory'
-        }];
-      }
-
-      // Read directory contents
-      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      // 统一使用正斜杠
+      const normalizedPath = dirPath.replace(/\\/g, '/');
       
-      // Process each entry
-      for (const entry of entries) {
-        const fullPath = path.join(dirPath, entry.name);
-        
-        try {
-          if (entry.isDirectory()) {
-            // Recursively load documents from subdirectory
-            const subResults = await this.loadDocuments(fullPath, options);
-            results.push(...subResults);
-          } else {
-            // Load individual document
-            const result = await this.loadDocument(fullPath, options);
-            results.push(result);
-          }
-        } catch (error) {
-          console.error(`Error processing ${fullPath}:`, error);
-          results.push({
-            document: new DocumentImpl({ path: fullPath }),
-            success: false,
-            error: `Failed to process: ${error instanceof Error ? error.message : String(error)}`
-          });
-        }
-      }
+      // 读取目录内容
+      const files = await fs.readdir(normalizedPath);
+      
+      // 加载所有文件
+      const results = await Promise.all(
+        files.map(file => this.loadDocument(path.join(normalizedPath, file).replace(/\\/g, '/'), options))
+      );
       
       return results;
     } catch (error) {
-      console.error(`Failed to load documents from directory ${dirPath}:`, error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       return [{
-        document: new DocumentImpl({ path: dirPath }),
+        document: new DocumentImpl({ path: dirPath, content: '' }),
         success: false,
-        error: `Failed to load documents: ${error instanceof Error ? error.message : String(error)}`
+        error: `Failed to load documents: ${errorMessage}`
       }];
     }
   }
@@ -441,27 +396,21 @@ export class BasicDocumentStore implements DocumentStore {
    * @returns Document if found, undefined otherwise
    */
   async getDocument(idOrPath: string): Promise<Document | undefined> {
-    try {
-      // First try to get from in-memory map
-      const doc = this.documents.get(idOrPath);
-      if (doc) {
-        return doc;
-      }
-
-      // If not found and looks like a file path, try to load from disk
-      if (path.isAbsolute(idOrPath) || idOrPath.includes('/') || idOrPath.includes('\\')) {
-        const result = await this.loadDocument(idOrPath);
-        if (result.success) {
-          return result.document;
-        }
-        console.error(`Failed to load document from path ${idOrPath}:`, result.error);
-      }
-
-      return undefined;
-    } catch (error) {
-      console.error(`Error in getDocument for ${idOrPath}:`, error);
+    // 统一使用正斜杠
+    const normalizedPath = idOrPath.replace(/\\/g, '/');
+    
+    // 检查文档是否已加载
+    if (this.documents.has(normalizedPath)) {
+      return this.documents.get(normalizedPath);
+    }
+    
+    // 尝试加载文档
+    const result = await this.loadDocument(normalizedPath);
+    if (!result.success) {
       return undefined;
     }
+    
+    return result.document;
   }
   
   /**

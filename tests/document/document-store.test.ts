@@ -45,6 +45,12 @@ describe('Document Store', () => {
       isDirectory: () => false
     } as any);
     vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.promises.access).mockImplementation((filePath: any) => {
+      if (filePath === 'nonexistent') {
+        return Promise.reject(new Error('File not found'));
+      }
+      return Promise.resolve(undefined);
+    });
   });
   
   afterEach(() => {
@@ -208,8 +214,8 @@ describe('Document Store', () => {
         path: '/test/documents/doc1.txt'
       });
       
-      // Mock the documents map
-      (documentStore as any).documents.set('doc1', doc);
+      // Mock the documents map with the correct path as key
+      (documentStore as any).documents.set('/test/documents/doc1.txt', doc);
       
       const document = await documentStore.getDocument('/test/documents/doc1.txt');
       
