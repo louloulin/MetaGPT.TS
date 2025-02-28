@@ -51,6 +51,7 @@ export class DesignAPI extends BaseAction {
     // Get requirements from args or context
     const requirements = this.getArg<string>('requirements') || '';
     const existingDesign = this.getArg<string>('existing_design') || '';
+    const workdir = this.getArg<string>('workdir') || './output';
     
     if (!requirements) {
       return this.createOutput(
@@ -83,7 +84,7 @@ export class DesignAPI extends BaseAction {
 
       // Save the design diagrams if possible
       try {
-        await this.saveDesignDiagrams(this.getArg<string>('workdir') || './output', design);
+        await this.saveDesignDiagrams(workdir, design);
       } catch (saveError) {
         // Log the error but don't fail the action
         logger.warn(`[${this.name}] Could not save design diagrams:`, saveError);
