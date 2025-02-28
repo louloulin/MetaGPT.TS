@@ -18,9 +18,9 @@ beforeEach(() => {
   }));
   
   // Mock path.join
-  vi.spyOn(path, 'join').mockImplementation((...args) => {
-    return args.filter(arg => arg !== undefined).join('/').replace(/\/+/g, '/');
-  });
+  vi.mock('path', () => ({
+    join: (...args: string[]) => args.filter(arg => arg !== undefined).join('/').replace(/\/+/g, '/')
+  }));
 });
 
 // Clear mocks after each test

@@ -7,7 +7,7 @@
  */
 
 import { BaseAction } from './base-action';
-import type { ActionOutput, ActionConfig } from '../types/action';
+import type { ActionOutput, ActionConfig, ActionContext } from '../types/action';
 import { logger } from '../utils/logger';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -48,59 +48,65 @@ export class DesignAPI extends BaseAction {
   async run(): Promise<ActionOutput> {
     logger.info(`[${this.name}] Running API design`);
     
-    // Get requirements from args or context
-    const requirements = this.getArg<string>('requirements') || '';
-    const existingDesign = this.getArg<string>('existing_design') || '';
-    const workdir = this.getArg<string>('workdir') || './output';
-    
-    if (!requirements) {
-      return this.createOutput(
-        'No requirements provided for API design',
-        'failed'
-      );
+    if (!this.llm) {
+      return {
+        status: 'failed',
+        content: 'LLM provider is required for API design'
+      };
     }
 
-    if (!this.llm) {
-      return this.createOutput(
-        'LLM provider is required for API design',
-        'failed'
-      );
+    const requirements = this.context?.args?.requirements;
+    if (!requirements) {
+      return {
+        status: 'failed',
+        content: 'No requirements provided for API design'
+      };
     }
 
     try {
-      let design: string;
-      
+      let response: string;
+      const existingDesign = this.context?.args?.existing_design;
+
       if (existingDesign) {
-        // If existing design exists, refine it
+        // Refine existing design
         logger.info(`[${this.name}] Refining existing API design`);
         const prompt = this.createRefinementPrompt(requirements, existingDesign);
-        design = await this.llm.chat(prompt);
+        response = await this.llm.chat(prompt);
       } else {
-        // Create new design
+        // Generate initial design
         logger.info(`[${this.name}] Creating new API design`);
         const prompt = this.createDesignPrompt(requirements);
-        design = await this.llm.chat(prompt);
+        response = await this.llm.chat(prompt);
+      }
+      
+      if (!response) {
+        return {
+          status: 'failed',
+          content: 'Failed to get response from LLM'
+        };
       }
 
-      // Save the design diagrams if possible
-      try {
-        await this.saveDesignDiagrams(workdir, design);
-      } catch (saveError) {
-        // Log the error but don't fail the action
-        logger.warn(`[${this.name}] Could not save design diagrams:`, saveError);
+      // Save design diagrams if workdir is provided
+      const workdir = this.context?.args?.workdir;
+      if (workdir) {
+        try {
+          await this.saveDesignDiagrams(workdir, response);
+        } catch (error) {
+          // Log error but don't fail the action
+          logger.error(`[${this.name}] Error saving diagrams: ${error}`);
+        }
       }
 
-      return this.createOutput(
-        design,
-        'completed'
-      );
+      return {
+        status: 'completed',
+        content: response
+      };
     } catch (error) {
-      logger.error(`[${this.name}] Error in API design:`, error);
-      await this.handleException(error as Error);
-      return this.createOutput(
-        `Failed to design API: ${error}`,
-        'failed'
-      );
+      logger.error(`[${this.name}] Error during API design: ${error}`);
+      return {
+        status: 'failed',
+        content: `Error during API design: ${error}`
+      };
     }
   }
 
