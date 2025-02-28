@@ -83,7 +83,7 @@ export class DesignAPI extends BaseAction {
 
       // Save the design diagrams if possible
       try {
-        await this.saveDesignDiagrams(design);
+        await this.saveDesignDiagrams(this.getArg<string>('workdir') || './output', design);
       } catch (saveError) {
         // Log the error but don't fail the action
         logger.warn(`[${this.name}] Could not save design diagrams:`, saveError);
@@ -200,41 +200,51 @@ export class DesignAPI extends BaseAction {
 
   /**
    * Extract and save design diagrams from the LLM output
+   * @param workdir - The working directory for saving diagrams
    * @param design - The design content containing mermaid diagrams
    */
-  private async saveDesignDiagrams(design: string): Promise<void> {
-    const workdir = this.getArg<string>('workdir') || './output';
-    const outputDir = path.join(workdir, 'designs');
-    
-    try {
-      // Create output directories
-      await fs.mkdir(path.join(outputDir, 'class_diagrams'), { recursive: true });
-      await fs.mkdir(path.join(outputDir, 'sequence_diagrams'), { recursive: true });
-      
-      // Extract class diagrams
-      const classMatch = design.match(/```mermaid\s*\n*classDiagram\s*([\s\S]*?)```/g);
-      if (classMatch && classMatch.length > 0) {
-        const classContent = classMatch[0].replace(/```mermaid\s*\n*/, '').replace(/```$/, '');
-        await fs.writeFile(
-          path.join(outputDir, 'class_diagrams', `class_diagram_${Date.now()}.mmd`),
-          classContent
-        );
-        logger.info(`[${this.name}] Saved class diagram`);
-      }
-      
-      // Extract sequence diagrams
-      const seqMatch = design.match(/```mermaid\s*\n*sequenceDiagram\s*([\s\S]*?)```/g);
-      if (seqMatch && seqMatch.length > 0) {
-        const seqContent = seqMatch[0].replace(/```mermaid\s*\n*/, '').replace(/```$/, '');
-        await fs.writeFile(
-          path.join(outputDir, 'sequence_diagrams', `sequence_diagram_${Date.now()}.mmd`),
-          seqContent
-        );
-        logger.info(`[${this.name}] Saved sequence diagram`);
-      }
-    } catch (error) {
-      // Re-throw the error to be handled by the caller
-      throw error;
+  private async saveDesignDiagrams(workdir: string, design: string): Promise<void> {
+    const baseDir = path.join(workdir, 'designs');
+    const classDiagramsDir = path.join(baseDir, 'class_diagrams');
+    const sequenceDiagramsDir = path.join(baseDir, 'sequence_diagrams');
+
+    // Create base directory and subdirectories
+    await fs.mkdir(baseDir, { recursive: true });
+    await fs.mkdir(classDiagramsDir, { recursive: true });
+    await fs.mkdir(sequenceDiagramsDir, { recursive: true });
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+    // Extract and save class diagrams
+    const classDiagrams = this.extractDiagrams(design, /```mermaid\s*\n*classDiagram([\s\S]*?)```/g);
+    for (let i = 0; i < classDiagrams.length; i++) {
+      const filename = path.join(classDiagramsDir, `class_diagram_${timestamp}_${i + 1}.mmd`);
+      await fs.writeFile(filename, classDiagrams[i].trim());
     }
+
+    // Extract and save sequence diagrams
+    const sequenceDiagrams = this.extractDiagrams(design, /```mermaid\s*\n*sequenceDiagram([\s\S]*?)```/g);
+    for (let i = 0; i < sequenceDiagrams.length; i++) {
+      const filename = path.join(sequenceDiagramsDir, `sequence_diagram_${timestamp}_${i + 1}.mmd`);
+      await fs.writeFile(filename, sequenceDiagrams[i].trim());
+    }
+  }
+
+  /**
+   * Extract diagrams from the design content
+   * @param design - The design content
+   * @param regex - The regex pattern to match diagrams
+   * @returns An array of diagram content
+   */
+  private extractDiagrams(design: string, regex: RegExp): string[] {
+    const diagrams = [];
+    const matches = design.match(regex);
+    if (matches && matches.length > 0) {
+      for (const match of matches) {
+        const diagramContent = match.replace(/```mermaid\s*\n*/, '').replace(/```$/, '');
+        diagrams.push(diagramContent);
+      }
+    }
+    return diagrams;
   }
 } 
