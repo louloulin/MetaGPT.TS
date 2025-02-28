@@ -6,8 +6,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DocumentGeneration, DocumentType, DocumentFormat } from '../../src/actions/document-generation';
 import type { DocumentGenerationResult, DocumentGenerationConfig } from '../../src/actions/document-generation';
 import { DocumentStatus } from '../../src/types/document';
+import { logger } from '../../src/utils/logger';
 
-// Mock LLM provider
+// Mock logger
+vi.spyOn(logger, 'info').mockImplementation(() => {});
+vi.spyOn(logger, 'error').mockImplementation(() => {});
+vi.spyOn(logger, 'debug').mockImplementation(() => {});
+vi.spyOn(logger, 'warn').mockImplementation(() => {});
+
+// Create mock LLM
 const mockLLM = {
   chat: vi.fn().mockImplementation(async (prompt: string) => {
     let response;
@@ -32,48 +39,6 @@ const mockLLM = {
           project_name: 'MetaGPT'
         }
       };
-    } else if (prompt.includes('USER_GUIDE') || prompt.includes('User Guide')) {
-      response = {
-        title: 'User Guide',
-        content: '# User Guide\n\n## Getting Started\nWelcome to the user guide.\n\n## Installation\nInstallation instructions here.\n\n## Basic Usage\n- Feature 1\n- Feature 2',
-        sections: {
-          'Getting Started': 'Welcome to the user guide.',
-          'Installation': 'Installation instructions here.',
-          'Basic Usage': '- Feature 1\n- Feature 2'
-        },
-        toc: ['Getting Started', 'Installation', 'Basic Usage'],
-        keywords: ['user guide', 'features', 'getting started'],
-        references: ['Product Documentation'],
-        type: 'USER_GUIDE',
-        format: 'MARKDOWN',
-        metadata: {
-          author: 'MetaGPT Document Generator',
-          version: '1.0.0',
-          date: new Date().toISOString().split('T')[0],
-          project_name: 'MetaGPT'
-        }
-      };
-    } else if (prompt.includes('format: HTML')) {
-      response = {
-        title: 'HTML Document',
-        content: '<html><head><title>HTML Document</title></head><body><h1>HTML Document</h1><p>This is an HTML document.</p></body></html>',
-        sections: {
-          'Main': 'This is an HTML document.'
-        },
-        toc: ['Main'],
-        keywords: ['html', 'document'],
-        references: [],
-        type: 'TECHNICAL_SPECIFICATION',
-        format: 'HTML',
-        metadata: {
-          author: 'MetaGPT Document Generator',
-          version: '1.0.0',
-          date: new Date().toISOString().split('T')[0],
-          project_name: 'MetaGPT'
-        }
-      };
-    } else if (prompt.includes('invalid json')) {
-      return 'This is not valid JSON';
     } else {
       response = {
         title: 'Default Document',
@@ -94,7 +59,7 @@ const mockLLM = {
         }
       };
     }
-    return response;
+    return JSON.stringify(response);
   }),
   getName: () => 'MockLLM',
   getModel: () => 'mock-model',
@@ -106,7 +71,7 @@ describe('DocumentGeneration', () => {
   
   beforeEach(() => {
     // Reset mocks before each test
-    vi.resetAllMocks();
+    vi.clearAllMocks();
     
     // Create DocumentGeneration instance with mock LLM
     documentGeneration = new DocumentGeneration({

@@ -1,14 +1,14 @@
-import { describe, test, expect, mock, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import { WriteTest } from '../../src/actions/write-test';
 import type { LLMProvider } from '../../src/types/llm';
 import type { ActionConfig } from '../../src/types/action';
 
 // Create a mock LLM provider for testing
-const mockLLM: Partial<LLMProvider> = {
-  chat: mock(() => Promise.resolve('Mocked test code:\n```typescript\nconst test = true;\n```')),
-  getName: mock(() => 'MockLLM'),
-  getModel: mock(() => 'mock-model'),
-  generate: mock(() => Promise.resolve('Mocked generated text'))
+const mockLLM: LLMProvider = {
+  chat: vi.fn().mockResolvedValue('Mocked test code:\n```typescript\nconst test = true;\n```'),
+  getName: vi.fn().mockReturnValue('MockLLM'),
+  getModel: vi.fn().mockReturnValue('mock-model'),
+  generate: vi.fn().mockResolvedValue('Mocked generated text')
 };
 
 describe('WriteTest Action', () => {
@@ -18,19 +18,19 @@ describe('WriteTest Action', () => {
     // Create a new WriteTest instance for each test
     writeTest = new WriteTest({
       name: 'WriteTest',
-      llm: mockLLM as LLMProvider
+      llm: mockLLM
     });
   });
   
   afterEach(() => {
     // Clear all mocks after each test
-    mock.restore();
+    vi.clearAllMocks();
   });
 
   test('should initialize with correct default properties', () => {
     const action = new WriteTest({
       name: 'WriteTest',
-      llm: mockLLM as LLMProvider
+      llm: mockLLM
     });
     expect(action.name).toBe('WriteTest');
     expect(action.desc).toContain('Write comprehensive test cases');
@@ -40,7 +40,7 @@ describe('WriteTest Action', () => {
     const customName = 'CustomWriteTest';
     const action = new WriteTest({
       name: customName,
-      llm: mockLLM as LLMProvider
+      llm: mockLLM
     });
     expect(action.name).toBe(customName);
   });
@@ -65,7 +65,7 @@ describe('WriteTest Action', () => {
     expect(mockLLM.chat).toHaveBeenCalled();
     
     // Verify the prompt contained the code and framework
-    const prompt = (mockLLM.chat as any).mock.calls[0][0];
+    const prompt = (mockLLM.chat as Mock).mock.calls[0][0];
     expect(prompt).toContain(code);
     expect(prompt).toContain('Testing Framework: jest');
   });
@@ -81,7 +81,7 @@ describe('WriteTest Action', () => {
     await writeTest.run();
     
     // Verify the prompt contained the specified framework
-    const prompt = (mockLLM.chat as any).mock.calls[0][0];
+    const prompt = (mockLLM.chat as Mock).mock.calls[0][0];
     expect(prompt).toContain(`Testing Framework: ${framework}`);
   });
 
@@ -96,7 +96,7 @@ describe('WriteTest Action', () => {
     await writeTest.run();
     
     // Verify the prompt contained the specified language
-    const prompt = (mockLLM.chat as any).mock.calls[0][0];
+    const prompt = (mockLLM.chat as Mock).mock.calls[0][0];
     expect(prompt).toContain(`Language: ${language}`);
   });
 
@@ -132,10 +132,8 @@ describe('WriteTest Action', () => {
 
   test('should handle LLM errors gracefully', async () => {
     // Make LLM throw error
-    const originalChat = mockLLM.chat;
-    mockLLM.chat = mock(() => {
-      throw new Error('LLM API error');
-    });
+    const errorMessage = 'LLM API error';
+    vi.spyOn(mockLLM, 'chat').mockRejectedValueOnce(new Error(errorMessage));
     
     // Set args and run
     writeTest['context'].args = { code: 'function test() {}' };
@@ -144,8 +142,5 @@ describe('WriteTest Action', () => {
     // Verify failure handling
     expect(result.status).toBe('failed');
     expect(result.content).toContain('Failed to write tests');
-    
-    // Restore mock
-    mockLLM.chat = originalChat;
   });
 }); 
