@@ -163,8 +163,8 @@ export class CustomerService extends Sales {
     try {
       logger.info(`[${this.name}] Handling customer service message: ${message.content.substring(0, 50)}...`);
       
-      // Add message to memory before processing
-      await this.addToMemory(message);
+      // Add message to working memory
+      await this.addToWorkingMemory(message);
       
       // Get search and summarize action
       const searchAction = this.actions.find(action => action.name === 'SearchAndSummarize');
@@ -175,8 +175,8 @@ export class CustomerService extends Sales {
         );
       }
       
-      // Get messages for context with customer service principles
-      const messages = await this.context.memory.getMessages();
+      // Get messages from working memory
+      const messages = await this.getMessages();
       const enhancedMessages = [...messages, message];
       
       // Configure search action with appropriate context
@@ -189,26 +189,21 @@ export class CustomerService extends Sales {
       // Create a custom system message incorporating customer service principles
       const systemMessage = `You are a customer service representative. ${CUSTOMER_SERVICE_PRINCIPLES}`;
       
-      // Set search parameters using action's run method
-      const actionWithArgs = {
-        ...searchAction,
-        context: {
-          ...searchAction.context,
-          args: {
-            ...searchAction.context.args,
-            messages: enhancedMessages,
-            context: combinedContext,
-            system_messages: [systemMessage]
-          }
-        }
+      // Update the action's context directly
+      searchAction.context.memory = this.context.memory;
+      searchAction.context.workingMemory = this.context.workingMemory;
+      searchAction.context.args = {
+        messages: enhancedMessages,
+        context: combinedContext,
+        system_messages: [systemMessage]
       };
       
-      // Execute the search action with customer service context
-      const result = await actionWithArgs.run();
+      // Execute the search action
+      const result = await searchAction.run();
       
       // Create and store response message
       const response = this.createMessage(result.content);
-      await this.addToMemory(response);
+      await this.addToWorkingMemory(response);
       
       return response;
     } catch (error) {
@@ -233,5 +228,19 @@ export class CustomerService extends Sales {
     }
     
     return '';
+  }
+
+  /**
+   * Override run to handle customer service specific logic
+   */
+  public async run(message?: Message): Promise<Message> {
+    logger.info(`[${this.name}] Running role...`);
+    
+    if (!message) {
+      return this.createMessage('No message provided');
+    }
+
+    // Handle the message directly
+    return await this.handleMessage(message);
   }
 } 

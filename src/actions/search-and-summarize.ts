@@ -76,18 +76,19 @@ export class SearchAndSummarize extends BaseAction {
     try {
       logger.info(`[${this.name}] Running SearchAndSummarize action`);
       
-      // Get messages from context
-      const messages = this.getArg<Message[]>('messages');
+      // Get messages from context args
+      const messages = this.getArg<Message[]>('messages') || [];
       
-      if (!messages || messages.length === 0) {
+      if (messages.length === 0) {
         return this.createOutput(
-          'No messages provided. Please provide conversation history to search and summarize.',
+          'No messages in context. Please provide conversation history to search and summarize.',
           'failed'
         );
       }
 
       // Get the query from the last message
-      const query = messages[messages.length - 1].content;
+      const lastMessage = messages[messages.length - 1];
+      const query = lastMessage?.content;
       
       if (!query) {
         return this.createOutput(
@@ -99,7 +100,6 @@ export class SearchAndSummarize extends BaseAction {
       logger.info(`[${this.name}] Searching for: ${query.substring(0, 100)}...`);
       
       // Perform the search 
-      // Note: In a real implementation, this would use an actual search API
       const searchResults = await this.performSearch(query);
       
       if (!searchResults) {
@@ -114,16 +114,16 @@ export class SearchAndSummarize extends BaseAction {
 
       // Previous messages in the conversation (excluding the current query)
       const previousMessages = messages.slice(0, -1);
-      const queryHistory = previousMessages.map(m => `${m.role}: ${m.content}`).join('\n');
+      const queryHistory = previousMessages.map((m: Message) => `${m.role}: ${m.content}`).join('\n');
       
       // Set the system prompt
-      this.setArg('system_messages', [SEARCH_AND_SUMMARIZE_SYSTEM_EN_US]);
+      const systemMessage = this.getArg<string[]>('system_messages')?.[0] || SEARCH_AND_SUMMARIZE_SYSTEM_EN_US;
       
       // Format the prompt with search results and conversation history
       const prompt = SEARCH_AND_SUMMARIZE_PROMPT
         .replace('{CONTEXT}', searchResults)
         .replace('{QUERY_HISTORY}', queryHistory)
-        .replace('{QUERY}', `${messages[messages.length - 1].role}: ${query}`);
+        .replace('{QUERY}', `${lastMessage.role}: ${query}`);
       
       // Get summarized response from LLM
       const response = await this.ask(prompt);
