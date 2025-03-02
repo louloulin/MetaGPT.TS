@@ -259,10 +259,13 @@ export class VercelLLMProvider implements LLMProvider {
       }
       
       const result = await generateText(generateOptions);
-
       return result.text;
     } catch (error) {
-      throw this.handleError(error);
+      console.error(`${this.config.providerType} provider error:`, error);
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error(`Unknown ${this.config.providerType} provider error`);
     }
   }
 

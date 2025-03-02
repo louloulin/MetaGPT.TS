@@ -10,6 +10,29 @@ import { BM25ToolRecommender } from '../tools/tool-recommend';
 import type { ToolRecommender } from '../tools/tool-recommend';
 import { ArrayMemory } from '../types/memory';
 import type { Task, TaskResult } from '../types/task';
+import { logger } from '../utils/logger';
+import { AIMessage } from '../types/message';
+
+/**
+ * Run mode for data interpreter
+ */
+export enum RunMode {
+  REGULAR = 'regular',
+  STREAMING = 'streaming'
+}
+
+/**
+ * Stream callback function type
+ */
+export type StreamCallback = (chunk: string, sectionTitle: string) => void;
+
+/**
+ * Stream options for data interpreter
+ */
+export interface StreamOptions {
+  mode: RunMode;
+  streamCallback?: StreamCallback;
+}
 
 /**
  * 思考提示词
@@ -30,7 +53,7 @@ Output a json following the format:
 `;
 
 /**
- * 数据解释器配置接口
+ * Configuration for DataInterpreter
  */
 export interface DataInterpreterConfig {
   llm: LLMProvider;
@@ -40,6 +63,7 @@ export interface DataInterpreterConfig {
   tools?: string[];
   react_mode?: 'plan_and_act' | 'react';
   max_react_loop?: number;
+  outputDir?: string;
 }
 
 /**
@@ -56,6 +80,7 @@ export class DataInterpreter extends BaseRole {
   react_mode: 'plan_and_act' | 'react';
   max_react_loop: number;
   planner: any = null; // This would be replaced with actual Planner type
+  private outputDir: string;
 
   /**
    * 构造函数
@@ -66,7 +91,7 @@ export class DataInterpreter extends BaseRole {
       'DataInterpreter',
       'Analyze data and provide insights through code generation and execution',
       'Write clean, efficient, and well-documented code for data analysis',
-      []
+      [new WriteAnalysisCode({ llm: config.llm })]
     );
     
     console.log('[DataInterpreter] Initializing with config:', {
@@ -86,71 +111,39 @@ export class DataInterpreter extends BaseRole {
     this.tools = config.tools ?? [];
     this.react_mode = config.react_mode ?? 'plan_and_act';
     this.max_react_loop = config.max_react_loop ?? 10;
+    this.outputDir = config.outputDir || process.cwd();
     
     // Initialize tool recommender if tools are provided
     if (this.tools.length > 0) {
       this.tool_recommender = new BM25ToolRecommender(this.tools);
     }
     
-    // Initialize actions
+    // Initialize role
     this.initialize();
   }
   
   /**
-   * 初始化角色
+   * Initialize role
    */
   private initialize(): void {
-    console.log('[DataInterpreter] Initializing role');
-    
     // Set react mode and working memory
-    this.setReactMode(this.react_mode, this.max_react_loop, this.auto_run);
+    this.setReactMode(this.react_mode, this.max_react_loop);
     
     // Override use_plan based on react_mode for consistency
     this.use_plan = this.react_mode === 'plan_and_act';
     
-    // Set initial action
-    this.actions = [new WriteAnalysisCode({ llm: this.llm })];
-    
     // Set initial state
     this.context.state = 0;
     this.setTodo(this.actions[0]);
-    
-    console.log('[DataInterpreter] Initialization complete');
   }
   
   /**
-   * 设置反应模式
+   * Set react mode
    */
-  private setReactMode(mode: 'plan_and_act' | 'react', maxLoop: number, autoRun: boolean): void {
-    this.react_mode = mode;
-    
-    if (mode === 'react') {
-      this.context.reactMode = 'react';
-      this.max_react_loop = maxLoop;
-    } else {
-      this.context.reactMode = 'plan_and_act';
-      // Initialize planner here (simplified)
-      // In a full implementation, we would instantiate a proper Planner class
-      this.planner = {
-        plan: { 
-          tasks: [], 
-          get_finished_tasks: () => [], 
-          current_task: null,
-          get_plan_status: () => ""
-        },
-        ask_review: async () => ["", false],
-        set_working_memory: (wm: any) => {}
-      };
-      
-      if (!this.context.workingMemory) {
-        this.context.workingMemory = new ArrayMemory();
-      }
-      
-      // Connect planner with working memory
-      if (this.planner && this.planner.set_working_memory) {
-        this.planner.set_working_memory(this.context.workingMemory);
-      }
-    }
+  public setReactMode(mode: 'plan_and_act' | 'react' | 'by_order', maxReactLoop: number = 1): void {
+    super.setReactMode(mode, maxReactLoop);
+    this.react_mode = mode === 'by_order' ? 'plan_and_act' : mode;
+    this.max_react_loop = maxReactLoop;
   }
   
   /**
@@ -161,81 +154,177 @@ export class DataInterpreter extends BaseRole {
   }
   
   /**
-   * 思考下一步行动（React 模式下使用）
+   * Create an error message
    */
-  async think(): Promise<boolean> {
-    console.log('[DataInterpreter] Starting think method');
-    
-    // Get user requirement and context
-    const memories = await this.context.memory.get();
-    if (!memories || memories.length === 0) {
-      console.warn('[DataInterpreter] No memories available');
-      return false;
-    }
-    
-    const user_requirement = memories[0].content;
-    const context = this.working_memory ? await this.working_memory.get() : [];
-    
-    if (!context || context.length === 0) {
-      // Just started the run, we need action certainly
-      console.log('[DataInterpreter] No context available, adding user requirement to working memory');
-      if (this.working_memory) {
-        this.working_memory.add(memories[0]);
+  private createErrorMessage(error: Error, errorType: string): AIMessage {
+    return new AIMessage(
+      `Error: ${error.message}`,
+      {
+        importance: 1,
+        tags: ["error", errorType],
+        context: {
+          errorType,
+          errorMessage: error.message,
+          timestamp: new Date().toISOString()
+        }
       }
-      this.context.state = 0;
-      this.setTodo(this.actions[0]);
-      return true;
-    }
-    
-    // Format context for prompt
-    const contextText = context.map(msg => `${msg.role}: ${msg.content}`).join('\n\n');
-    
-    // Create thinking prompt
-    const prompt = REACT_THINK_PROMPT
-      .replace('{user_requirement}', user_requirement)
-      .replace('{context}', contextText);
-    
-    console.log('[DataInterpreter] Sending think prompt to LLM');
-    
-    // Get LLM response
-    const response = await this.llm.generate(prompt);
-    console.log(`[DataInterpreter] Received LLM response: ${response.substring(0, 100)}...`);
-    
-    // Parse JSON response
+    );
+  }
+
+  /**
+   * Create an analysis message
+   */
+  private createAnalysisMessage(content: string, metadata: Record<string, any> = {}): AIMessage {
+    return new AIMessage(
+      content,
+      {
+        importance: 1,
+        tags: ["analysis"],
+        context: {
+          ...metadata,
+          timestamp: new Date().toISOString()
+        }
+      }
+    );
+  }
+
+  /**
+   * Handle LLM response
+   */
+  private async handleLLMResponse(response: string): Promise<[boolean, string]> {
     try {
-      const jsonStr = response.replace(/```json|```/g, '').trim();
-      const responseObj = JSON.parse(jsonStr);
+      const parsedResponse = JSON.parse(response);
       
       // Add thoughts to working memory
-      if (this.working_memory) {
-        this.working_memory.add({
-          id: uuidv4(),
-          content: responseObj.thoughts,
-          role: 'assistant',
-          causedBy: 'think',
-          sentFrom: this.name,
-          sendTo: new Set(['*']),
-          instructContent: null
-        });
-      }
-      
-      // Set state based on whether more action is needed
-      const needAction = responseObj.state;
-      this.context.state = needAction ? 0 : -1;
-      if (needAction) {
-        this.setTodo(this.actions[0]);
-      } else {
-        this.setTodo(null);
-      }
-      
-      console.log(`[DataInterpreter] Think result: need further action = ${needAction}`);
-      return needAction;
+      await this.addToWorkingMemory(this.createAnalysisMessage(
+        parsedResponse.thoughts,
+        {
+          code: parsedResponse.code,
+          insights: parsedResponse.insights
+        }
+      ));
+
+      // Set context state and return next action status
+      this.context.state = parsedResponse.next_action ? 0 : -1;
+      return [parsedResponse.next_action, parsedResponse.thoughts];
     } catch (error) {
-      console.error('[DataInterpreter] Error parsing LLM response:', error);
-      // Default to taking action if parsing fails
-      this.context.state = 0;
-      this.setTodo(this.actions[0]);
-      return true;
+      console.error(`[${this.name}] Failed to parse LLM response:`, error);
+      await this.addToWorkingMemory(this.createErrorMessage(
+        error as Error,
+        "PARSE_ERROR"
+      ));
+      return [false, ""];
+    }
+  }
+
+  /**
+   * Think about the next action based on the current context
+   */
+  public override async think(): Promise<boolean> {
+    try {
+      console.log(`[${this.name}] Thinking about next action...`);
+      
+      // Get messages from working memory
+      const messages = await this.getMessages();
+      if (!messages || messages.length === 0) {
+        console.log(`[${this.name}] No messages in working memory`);
+        return false;
+      }
+
+      const lastMessage = messages[messages.length - 1];
+      if (!lastMessage.content) {
+        console.log(`[${this.name}] Last message has no content`);
+        return false;
+      }
+
+      // Create prompt for LLM
+      const prompt = `Based on the following requirement, please analyze the data and provide insights:
+${lastMessage.content}
+
+Please provide your response in the following JSON format:
+{
+  "thoughts": "your analysis process",
+  "code": "the Python code to perform the analysis",
+  "insights": "key findings and insights from the analysis",
+  "next_action": "whether further analysis is needed (true/false)"
+}`;
+
+      try {
+        // Get LLM response
+        const llmResponse = await this.llm.generate(prompt);
+        console.log(`[${this.name}] LLM Response:`, llmResponse);
+
+        // Parse LLM response
+        let parsedResponse;
+        try {
+          parsedResponse = JSON.parse(llmResponse);
+        } catch (parseError) {
+          console.error(`[${this.name}] Failed to parse LLM response:`, parseError);
+          await this.addToWorkingMemory(new AIMessage(
+            "Error: Failed to parse analysis results. Please try again.",
+            {
+              importance: 1,
+              tags: ["error", "parse_error"],
+              context: {
+                errorType: "PARSE_ERROR",
+                timestamp: new Date().toISOString()
+              }
+            }
+          ));
+          return false;
+        }
+
+        // Add thoughts to working memory
+        await this.addToWorkingMemory(new AIMessage(
+          parsedResponse.thoughts,
+          {
+            importance: 1,
+            tags: ["analysis", "code"],
+            context: {
+              code: parsedResponse.code,
+              insights: parsedResponse.insights,
+              timestamp: new Date().toISOString()
+            }
+          }
+        ));
+
+        // Set context state based on whether further action is needed
+        this.context.state = parsedResponse.next_action ? 0 : -1;
+        return parsedResponse.next_action;
+
+      } catch (error) {
+        const llmError = error as Error;
+        console.error(`[${this.name}] LLM Error:`, llmError);
+        await this.addToWorkingMemory(new AIMessage(
+          "Error: Failed to generate analysis. Please try again.",
+          {
+            importance: 1,
+            tags: ["error", "llm_error"],
+            context: {
+              errorType: "LLM_ERROR",
+              errorMessage: llmError.message,
+              timestamp: new Date().toISOString()
+            }
+          }
+        ));
+        return false;
+      }
+    } catch (error) {
+      const unexpectedError = error as Error;
+      console.error(`[${this.name}] Unexpected error:`, unexpectedError);
+      await this.addToWorkingMemory(new AIMessage(
+        "Error: An unexpected error occurred. Please try again.",
+        {
+          importance: 1,
+          tags: ["error", "unexpected_error"],
+          context: {
+            errorType: "UNEXPECTED_ERROR",
+            errorMessage: unexpectedError.message,
+            timestamp: new Date().toISOString()
+          }
+        }
+      ));
+      return false;
     }
   }
   
@@ -247,15 +336,8 @@ export class DataInterpreter extends BaseRole {
     
     const [code, result, isSuccess] = await this.writeAndExecCode();
     
-    const message: Message = {
-      id: uuidv4(),
-      content: code,
-      role: 'assistant',
-      causedBy: 'WriteAnalysisCode',
-      sentFrom: this.name,
-      sendTo: new Set(['*']),
-      instructContent: null
-    };
+    const message = this.createMessage(code);
+    message.causedBy = 'WriteAnalysisCode';
     
     console.log('[DataInterpreter] Act completed, returning message');
     return message;
@@ -315,9 +397,8 @@ export class DataInterpreter extends BaseRole {
     // Prepare tool info
     let toolInfo = '';
     if (this.tool_recommender) {
-      const context = this.working_memory && this.working_memory.get().length > 0 
-        ? this.working_memory.get()[this.working_memory.get().length - 1].content 
-        : '';
+      const messages = await this.working_memory?.get();
+      const context = messages && messages.length > 0 ? messages[messages.length - 1].content : '';
       const plan = this.use_plan && this.planner ? this.planner.plan : null;
       
       toolInfo = await this.tool_recommender.getRecommendedToolInfo(context, plan);
@@ -331,19 +412,11 @@ export class DataInterpreter extends BaseRole {
       console.log(`[DataInterpreter] Code execution attempt ${counter + 1} of ${maxRetry}`);
       
       // Write code
-      [code] = await this.writeCode(counter, planStatus, toolInfo);
+      [code] = await this.writeCode();
       
       // Add code to working memory
       if (this.working_memory) {
-        this.working_memory.add({
-          id: uuidv4(),
-          content: code,
-          role: 'assistant',
-          causedBy: 'WriteAnalysisCode',
-          sentFrom: this.name,
-          sendTo: new Set(['*']),
-          instructContent: null
-        });
+        await this.addToWorkingMemory(this.createMessage(code));
       }
       
       // Execute code
@@ -353,8 +426,195 @@ export class DataInterpreter extends BaseRole {
       if (!success) {
         console.log(`[DataInterpreter] Code execution failed, retrying...`);
       }
+      
+      counter++;
     }
     
     return [code, result, success];
+  }
+
+  /**
+   * Run the data interpreter with support for streaming
+   */
+  public async run(message: Message, options?: StreamOptions): Promise<Message> {
+    try {
+      // Add message to memory
+      await this.addToMemory(message);
+
+      if (options?.mode === RunMode.STREAMING) {
+        return await this.runWithStreaming(options.streamCallback);
+      } else {
+        return await this.runRegular();
+      }
+    } catch (error) {
+      logger.error(`[${this.name}] Error in run method: ${error}`);
+      return this.createMessage('Cannot determine next action. Please try again.');
+    }
+  }
+
+  /**
+   * Run with streaming output
+   */
+  private async runWithStreaming(callback?: StreamCallback): Promise<Message> {
+    const sections = ['Data Loading', 'Exploratory Analysis', 'Statistical Analysis', 'Visualization', 'Model Training'];
+    let currentSection = '';
+    let fullContent = '';
+    
+    // Store the original generate method
+    const originalGenerate = this.llm.generate.bind(this.llm);
+
+    try {
+      const boundCallback = callback?.bind(this);
+      
+      // Create a wrapped generate function that maintains the original context
+      this.llm.generate = async (prompt: string) => {
+        const response = await originalGenerate(prompt);
+        
+        // Find current section
+        for (const section of sections) {
+          if (response.includes(section)) {
+            currentSection = section;
+            break;
+          }
+        }
+
+        // Call streaming callback
+        if (boundCallback) {
+          boundCallback(response, currentSection);
+        }
+
+        fullContent += response;
+        return response;
+      };
+
+      // Run the analysis
+      const result = this.react_mode === 'react' 
+        ? await this.react()
+        : await this.planAndAct();
+
+      // Restore original generate method
+      this.llm.generate = originalGenerate;
+
+      return result;
+    } catch (error) {
+      logger.error(`[${this.name}] Error in streaming analysis: ${error}`);
+      // Restore original generate method in case of error
+      this.llm.generate = originalGenerate;
+      return this.createMessage('Error occurred during streaming analysis. Please try again.');
+    }
+  }
+
+  /**
+   * Run in regular mode
+   */
+  private async runRegular(): Promise<Message> {
+    try {
+      return this.react_mode === 'react'
+        ? await this.react()
+        : await this.planAndAct();
+    } catch (error) {
+      logger.error(`[${this.name}] Error in regular analysis: ${error}`);
+      return this.createMessage('Error occurred during analysis. Please try again.');
+    }
+  }
+
+  /**
+   * Check data before analysis
+   */
+  private async checkData(): Promise<boolean> {
+    const checkAction = new CheckData({ llm: this.llm });
+    const result = await checkAction.run();
+    return result.status === 'completed';
+  }
+
+  /**
+   * Write analysis code
+   */
+  private async writeCode(): Promise<string> {
+    const writeAction = new WriteAnalysisCode({ llm: this.llm });
+    const result = await writeAction.run();
+    return result.content;
+  }
+
+  /**
+   * Create a message with proper timestamp and metadata
+   */
+  protected override createMessage(content: string, role: string = 'assistant'): Message {
+    return {
+      id: uuidv4(),
+      content,
+      role,
+      causedBy: 'data-analysis',
+      sentFrom: this.name,
+      timestamp: new Date().toISOString(),
+      sendTo: new Set(['*']),
+      instructContent: null,
+      metadata: {
+        importance: 0.5,
+        tags: ['data-analysis'],
+        context: {}
+      }
+    };
+  }
+
+  /**
+   * Override addToWorkingMemory to include metadata
+   */
+  protected override async addToWorkingMemory(message: Message): Promise<void> {
+    const enhancedMessage = {
+      ...message,
+      timestamp: message.timestamp || new Date().toISOString(),
+      metadata: {
+        ...(message.metadata || {}),
+        importance: 0.5,
+        tags: ['data-analysis'],
+        context: {}
+      }
+    };
+    await super.addToWorkingMemory(enhancedMessage);
+  }
+
+  /**
+   * Get messages from memory with proper typing
+   */
+  protected override async getMessages(): Promise<Message[]> {
+    const messages = await super.getMessages();
+    return messages.map(msg => ({
+      ...msg,
+      timestamp: msg.timestamp || new Date().toISOString(),
+      metadata: {
+        ...(msg.metadata || {}),
+        importance: 0.5,
+        tags: ['data-analysis'],
+        context: {}
+      }
+    }));
+  }
+
+  /**
+   * Execute in React mode
+   */
+  public override async react(): Promise<Message> {
+    try {
+      let needsMoreAction = true;
+      let loopCount = 0;
+      let lastMessage: Message | null = null;
+
+      while (needsMoreAction && loopCount < this.max_react_loop) {
+        // Think about what to do next
+        needsMoreAction = await this.think();
+        
+        if (needsMoreAction) {
+          // Execute the action
+          lastMessage = await this.act();
+        }
+        loopCount++;
+      }
+
+      return lastMessage || this.createMessage('Analysis completed.');
+    } catch (error) {
+      logger.error(`[${this.name}] Error in react method: ${error}`);
+      return this.createMessage('Error occurred during analysis. Please try again.');
+    }
   }
 }

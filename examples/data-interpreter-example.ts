@@ -1,48 +1,67 @@
 import { v4 as uuidv4 } from 'uuid';
 import { VercelLLMProvider } from '../src/provider/vercel-llm';
-import { DataInterpreter } from '../src/roles/data-interpreter';
+import { DataInterpreter, RunMode } from '../src/roles/data-interpreter';
+import { logger, LogLevel } from '../src/utils/logger';
+import * as path from 'path';
+import * as fs from 'fs/promises';
+
+// Set log level
+logger.setLevel(LogLevel.INFO);
 
 /**
- * 数据解释器示例
- * 
- * 该示例演示如何使用数据解释器生成数据分析代码
+ * Example of using the DataInterpreter with unified run method
+ * supporting both streaming and regular modes
  */
 async function main() {
-  console.log(`🚀 开始执行数据分析 [${new Date().toISOString()}]`);
-  
   try {
-    // 从环境变量获取API密钥
-    const apiKey = process.env.DASHSCOPE_API_KEY;
-    console.log('✓ 检查环境变量');
+    logger.info('Starting DataInterpreter example...');
+    
+    // Check for API key
+    const apiKey = process.env.DASHSCOPE_API_KEY || process.env.OPENAI_API_KEY;
+    logger.info('✓ Checking environment variables');
     
     if (!apiKey) {
-      console.error('❌ 错误: 请设置环境变量: DASHSCOPE_API_KEY');
+      logger.error('❌ Error: Please set environment variable: DASHSCOPE_API_KEY or OPENAI_API_KEY');
       process.exit(1);
     }
-    console.log('✓ 环境变量已设置');
+    logger.info('✓ Environment variables set');
     
-    // 初始化Vercel LLM提供商 - 使用百炼大模型(qwen)
-    console.log('⚙️ 配置百炼大模型...');
+    // Initialize LLM provider
+    logger.info('⚙️ Configuring LLM provider...');
+    
+    // Choose provider based on available API key
+    const providerType = process.env.DASHSCOPE_API_KEY ? 'qwen' : 'openai';
+    const model = providerType === 'qwen' ? 'qwen-plus-2025-01-25' : 'gpt-3.5-turbo';
+    const baseURL = providerType === 'qwen' 
+      ? 'https://dashscope.aliyuncs.com/compatible-mode/v1' 
+      : undefined;
+    
     const llmProvider = new VercelLLMProvider({
-      providerType: 'qwen',
+      providerType,
       apiKey,
-      model: 'qwen-plus-2025-01-25',
-      baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', // 自定义API端点
+      model,
+      baseURL,
       extraConfig: {
         qwenOptions: {
-          debug: true, // 启用调试日志
+          debug: true,
         },
         generateOptions: {
           system: '你是一位专业的数据科学家，擅长数据分析、可视化和机器学习。'
         }
       }
     });
-    console.log(`✓ 模型配置完成: qwen - qwen-plus-2025-01-25`);
     
-    console.log('⚙️ 初始化数据解释器...');
-    console.time('数据解释器初始化时间');
+    logger.info(`✓ Model configured: ${llmProvider.getName()} - ${llmProvider.getModel()}`);
     
-    // 创建数据解释器
+    // Create output directory for analysis results
+    const outputDir = path.join(process.cwd(), 'analysis_results');
+    await fs.mkdir(outputDir, { recursive: true });
+    logger.info(`✓ Output directory created: ${outputDir}`);
+    
+    // Initialize DataInterpreter
+    logger.info('⚙️ Initializing data interpreter...');
+    console.time('Data interpreter initialization time');
+    
     const dataInterpreter = new DataInterpreter({
       llm: llmProvider,
       auto_run: true,
@@ -51,96 +70,125 @@ async function main() {
       react_mode: 'react',
       max_react_loop: 2,
       tools: ['pandas', 'matplotlib', 'seaborn', 'scikit-learn'],
+      outputDir
     });
     
-    console.timeEnd('数据解释器初始化时间');
-    console.log('✓ 数据解释器初始化完成');
+    console.timeEnd('Data interpreter initialization time');
+    logger.info('✓ Data interpreter initialized');
     
-    // 设置要分析的数据需求
+    // Analysis requirement
     const requirement = '使用Python分析鸢尾花数据集，包括基本统计信息、相关性分析和可视化，最后使用SVM算法进行分类。';
-    console.log(`📝 数据分析需求: "${requirement}"`);
+    logger.info(`📝 Analysis requirement: "${requirement}"`);
     
-    // 检查Python环境
-    console.log('🔍 检查Python环境...');
+    // Check Python environment
+    logger.info('🔍 Checking Python environment...');
     await checkPythonEnvironment();
     
-    // 执行数据分析
-    console.log('🔄 开始数据分析...');
-    console.time('数据分析总时间');
-    
-    const result = await dataInterpreter.react({
+    // Create message
+    const message = {
       id: uuidv4(),
-      role: 'user',
       content: requirement,
-      causedBy: 'user-input',
+      role: 'user',
+      causedBy: 'user',
       sentFrom: 'user',
+      timestamp: new Date().toISOString(),
       sendTo: new Set(['*']),
       instructContent: null,
-    });
+    };
     
-    console.timeEnd('数据分析总时间');
-    console.log('✅ 数据分析完成!');
+    // Determine run mode
+    const runMode = RunMode.STREAMING;
+    logger.info(`Running in ${runMode} mode`);
     
-    // 检查结果中是否有依赖错误
-    if (result.content.includes('Missing Dependencies Detected') || result.content.includes('Missing Dependency:')) {
-      console.log('⚠️ 检测到缺少Python依赖!');
-      console.log('');
-      console.log('请安装所需依赖:');
+    // Start analysis
+    logger.info('🔄 Starting data analysis...');
+    console.time('Data analysis total time');
+    
+    if (runMode === RunMode.STREAMING) {
+      logger.info('Starting streaming analysis...');
+      logger.info('\n--- Streaming analysis started ---\n');
       
-      // 提取安装命令
-      const pipMatch = result.content.match(/pip install ([^`]+)/);
-      if (pipMatch && pipMatch[1]) {
-        console.log(`\n运行: pip install ${pipMatch[1].trim()}\n`);
-      } else {
-        console.log(result.content);
-      }
+      // Track current section
+      let currentSection = '';
+      
+      // Use run method with streaming options
+      const result = await dataInterpreter.run(message, {
+        mode: RunMode.STREAMING,
+        streamCallback: (chunk, sectionTitle) => {
+          // Update current section if changed
+          if (currentSection !== sectionTitle) {
+            if (currentSection !== '') {
+              process.stdout.write('\n\n');
+            }
+            process.stdout.write(`\n--- Generating section: ${sectionTitle} ---\n\n`);
+            currentSection = sectionTitle;
+          }
+          
+          // Output chunk in real-time
+          process.stdout.write(chunk);
+        }
+      });
+      
+      logger.info('\n\n--- Streaming analysis completed ---');
+      logger.info(`Result: ${result.content}`);
     } else {
-      // 正常输出结果
-      console.log(`📄 生成结果: ${result.content.substring(0, 200)}...`);
+      logger.info('Starting regular analysis...');
+      
+      // Use run method with regular mode
+      const startTime = Date.now();
+      const result = await dataInterpreter.run(message);
+      const endTime = Date.now();
+      
+      logger.info('--- Regular analysis completed ---');
+      logger.info(`Result: ${result.content}`);
+      logger.info(`Analysis took ${(endTime - startTime) / 1000} seconds`);
     }
     
-    console.log(`🏁 数据分析完成 [${new Date().toISOString()}]`);
+    console.timeEnd('Data analysis total time');
+    logger.info('✅ Data analysis completed!');
+    
   } catch (error) {
-    console.error('❌ 数据分析时出错:', error);
+    logger.error('Error in DataInterpreter example:', error);
     if (error instanceof Error) {
-      console.error(`错误类型: ${error.name}`);
-      console.error(`错误信息: ${error.message}`);
-      console.error(`错误堆栈: ${error.stack}`);
+      logger.error(`Error type: ${error.name}`);
+      logger.error(`Error message: ${error.message}`);
+      logger.error(`Error stack: ${error.stack}`);
     }
+    process.exit(1);
   }
 }
 
 /**
- * 检查Python环境
+ * Check Python environment
  */
 async function checkPythonEnvironment(): Promise<void> {
   const { exec } = require('child_process');
   
   return new Promise((resolve, reject) => {
-    // 检查Python版本
+    // Check Python version
     exec('python --version', (error: any, stdout: string, stderr: string) => {
       if (error) {
-        console.error('❌ 未检测到Python! 请确保Python已安装并添加到PATH中。');
+        logger.error('❌ Python not detected! Please ensure Python is installed and added to PATH.');
         reject(new Error('Python not found'));
         return;
       }
       
-      console.log(`✓ 检测到Python: ${stdout.trim()}`);
+      logger.info(`✓ Python detected: ${stdout.trim()}`);
       
-      // 检查常用数据科学包
+      // Check common data science packages
       const packages = ['pandas', 'numpy', 'matplotlib', 'seaborn', 'scikit-learn'];
       let installedCount = 0;
       let missingPackages: string[] = [];
       
       const checkPackage = (index: number) => {
         if (index >= packages.length) {
-          // 所有包检查完毕
-          console.log(`✓ 已安装的包: ${installedCount}/${packages.length}`);
+          // All packages checked
+          logger.info(`✓ Installed packages: ${installedCount}/${packages.length}`);
           
           if (missingPackages.length > 0) {
             const pipCmd = `pip install ${missingPackages.join(' ')}`;
-            console.log(`⚠️ 缺少以下Python包: ${missingPackages.join(', ')}`);
-            console.log(`💡 建议运行: ${pipCmd}`);
+            logger.warn(`⚠️ Missing Python packages: ${missingPackages.join(', ')}`);
+            logger.info(`💡 Suggested command: ${pipCmd}`);
           }
           
           resolve();
@@ -150,24 +198,25 @@ async function checkPythonEnvironment(): Promise<void> {
         const pkg = packages[index];
         exec(`python -c "import ${pkg}" 2>/dev/null`, (err: any) => {
           if (err) {
-            console.log(`✗ 未安装: ${pkg}`);
+            logger.warn(`✗ Not installed: ${pkg}`);
             missingPackages.push(pkg);
           } else {
-            console.log(`✓ 已安装: ${pkg}`);
+            logger.info(`✓ Installed: ${pkg}`);
             installedCount++;
           }
           
-          // 检查下一个包
+          // Check next package
           checkPackage(index + 1);
         });
       };
       
-      // 开始检查第一个包
+      // Start checking first package
       checkPackage(0);
     });
   });
 }
 
-// 运行示例
-console.log(' 数据解释器示例');
-main(); 
+// Run the example
+if (require.main === module) {
+  main().catch(error => logger.error('Unhandled error:', error));
+} 
