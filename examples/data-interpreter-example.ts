@@ -1,222 +1,333 @@
-import { v4 as uuidv4 } from 'uuid';
-import { VercelLLMProvider } from '../src/provider/vercel-llm';
 import { DataInterpreter, RunMode } from '../src/roles/data-interpreter';
 import { logger, LogLevel } from '../src/utils/logger';
-import * as path from 'path';
-import * as fs from 'fs/promises';
+import type { SupportedLanguage } from '../src/actions/dependency-manager/dependency-manager-factory';
+import type { DependencyManagerConfig } from '../src/actions/dependency-manager/dependency-manager';
+import type { LLMProvider } from '../src/types/llm';
+import type { Message } from '../src/types/message';
+import { v4 as uuidv4 } from 'uuid';
+// 导入ExecuteNbCode类
+import { ExecuteNbCode } from '../src/actions/di/execute-nb-code';
 
-// Set log level
+// 设置日志级别
 logger.setLevel(LogLevel.INFO);
 
 /**
- * Example of using the DataInterpreter with unified run method
- * supporting both streaming and regular modes
+ * 运行配置
  */
-async function main() {
-  try {
-    logger.info('Starting DataInterpreter example...');
+interface RunConfig {
+  /** 使用任务拆解 */
+  usePlan: boolean;
+  /** 运行模式 */
+  runMode: 'regular' | 'streaming';
+  /** 使用反思 */
+  useReflection: boolean;
+  /** 最大迭代次数 */
+  maxIterations: number;
+  /** 依赖管理 */
+  dependencyManagement: {
+    /** 是否启用依赖管理 */
+    enabled: boolean;
+    /** 是否自动安装缺失依赖 */
+    autoInstall: boolean;
+    /** 指定语言，默认为自动检测 */
+    language?: SupportedLanguage;
+  };
+  /** 代码执行 */
+  codeExecution: {
+    /** 项目名称前缀 */
+    projectPrefix: string;
+    /** 是否保留工作目录 */
+    preserveFiles: boolean;
+    /** 基础工作目录 */
+    baseDir?: string;
+    /** 是否设置pip3到pip的软连接 */
+    setupPipLink?: boolean;
+  };
+}
+
+/**
+ * 创建一个消息对象
+ * @param content 消息内容
+ */
+function createMessage(content: string): Message {
+  return {
+    id: uuidv4(),
+    content,
+    role: 'user',
+    causedBy: 'user',
+    sentFrom: 'user',
+    timestamp: new Date().toISOString(),
+    sendTo: new Set(['*']),
+    instructContent: null,
+  };
+}
+
+/**
+ * 扩展DataInterpreter类，提供简化的分析方法
+ */
+class EnhancedDataInterpreter extends DataInterpreter {
+  private codeExecutor: ExecuteNbCode;
+  
+  constructor(config: any, llmProvider: LLMProvider) {
+    super(config);
     
-    // Check for API key
-    const apiKey = process.env.DASHSCOPE_API_KEY || process.env.OPENAI_API_KEY;
-    logger.info('✓ Checking environment variables');
-    
-    if (!apiKey) {
-      logger.error('❌ Error: Please set environment variable: DASHSCOPE_API_KEY or OPENAI_API_KEY');
-      process.exit(1);
-    }
-    logger.info('✓ Environment variables set');
-    
-    // Initialize LLM provider
-    logger.info('⚙️ Configuring LLM provider...');
-    
-    // Choose provider based on available API key
-    const providerType = process.env.DASHSCOPE_API_KEY ? 'qwen' : 'openai';
-    const model = providerType === 'qwen' ? 'qwen-plus-2025-01-25' : 'gpt-3.5-turbo';
-    const baseURL = providerType === 'qwen' 
-      ? 'https://dashscope.aliyuncs.com/compatible-mode/v1' 
-      : undefined;
-    
-    const llmProvider = new VercelLLMProvider({
-      providerType,
-      apiKey,
-      model,
-      baseURL,
-      extraConfig: {
-        qwenOptions: {
-          debug: true,
-        },
-        generateOptions: {
-          system: '你是一位专业的数据科学家，擅长数据分析、可视化和机器学习。'
-        }
-      }
+    // 初始化代码执行器
+    this.codeExecutor = new ExecuteNbCode(llmProvider, {
+      projectPrefix: config.codeExecution?.projectPrefix || '数据服务',
+      preserveFiles: config.codeExecution?.preserveFiles !== false,
+      baseDir: config.codeExecution?.baseDir || 'workspace',
+      setupPipLink: config.codeExecution?.setupPipLink !== false
     });
     
-    logger.info(`✓ Model configured: ${llmProvider.getName()} - ${llmProvider.getModel()}`);
-    
-    // Create output directory for analysis results
-    const outputDir = path.join(process.cwd(), 'analysis_results');
-    await fs.mkdir(outputDir, { recursive: true });
-    logger.info(`✓ Output directory created: ${outputDir}`);
-    
-    // Initialize DataInterpreter
-    logger.info('⚙️ Initializing data interpreter...');
-    console.time('Data interpreter initialization time');
-    
-    const dataInterpreter = new DataInterpreter({
-      llm: llmProvider,
-      auto_run: true,
-      use_plan: false,
-      use_reflection: true,
-      react_mode: 'react',
-      max_react_loop: 2,
-      tools: ['pandas', 'matplotlib', 'seaborn', 'scikit-learn'],
-      outputDir
+    logger.info(`[EnhancedDataInterpreter] 初始化代码执行器，项目前缀: ${config.codeExecution?.projectPrefix || '数据服务'}`);
+    logger.info(`[EnhancedDataInterpreter] 工作目录: ${config.codeExecution?.baseDir || 'workspace'}`);
+    logger.info(`[EnhancedDataInterpreter] 设置pip软连接: ${config.codeExecution?.setupPipLink !== false ? '是' : '否'}`);
+  }
+  
+  /**
+   * 常规分析方法
+   * @param requirement 分析需求
+   */
+  async analyze(requirement: string): Promise<string> {
+    const message = createMessage(requirement);
+    const result = await this.run(message);
+    return result.content;
+  }
+
+  /**
+   * 流式分析方法
+   * @param requirement 分析需求
+   * @param callback 流式回调函数
+   */
+  async streamAnalyze(requirement: string, callback: (chunk: string, section: string) => void): Promise<string> {
+    const message = createMessage(requirement);
+    const result = await this.run(message, {
+      mode: RunMode.STREAMING,
+      streamCallback: callback
     });
-    
-    console.timeEnd('Data interpreter initialization time');
-    logger.info('✓ Data interpreter initialized');
-    
-    // Analysis requirement
-    const requirement = '使用Python分析鸢尾花数据集，包括基本统计信息、相关性分析和可视化，最后使用SVM算法进行分类。';
-    logger.info(`📝 Analysis requirement: "${requirement}"`);
-    
-    // Check Python environment
-    logger.info('🔍 Checking Python environment...');
-    await checkPythonEnvironment();
-    
-    // Create message
-    const message = {
-      id: uuidv4(),
-      content: requirement,
-      role: 'user',
-      causedBy: 'user',
-      sentFrom: 'user',
-      timestamp: new Date().toISOString(),
-      sendTo: new Set(['*']),
-      instructContent: null,
-    };
-    
-    // Determine run mode
-    const runMode = RunMode.STREAMING;
-    logger.info(`Running in ${runMode} mode`);
-    
-    // Start analysis
-    logger.info('🔄 Starting data analysis...');
-    console.time('Data analysis total time');
-    
-    if (runMode === RunMode.STREAMING) {
-      logger.info('Starting streaming analysis...');
-      logger.info('\n--- Streaming analysis started ---\n');
-      
-      // Track current section
-      let currentSection = '';
-      
-      // Use run method with streaming options
-      const result = await dataInterpreter.run(message, {
-        mode: RunMode.STREAMING,
-        streamCallback: (chunk, sectionTitle) => {
-          // Update current section if changed
-          if (currentSection !== sectionTitle) {
-            if (currentSection !== '') {
-              process.stdout.write('\n\n');
-            }
-            process.stdout.write(`\n--- Generating section: ${sectionTitle} ---\n\n`);
-            currentSection = sectionTitle;
-          }
-          
-          // Output chunk in real-time
-          process.stdout.write(chunk);
-        }
-      });
-      
-      logger.info('\n\n--- Streaming analysis completed ---');
-      logger.info(`Result: ${result.content}`);
-    } else {
-      logger.info('Starting regular analysis...');
-      
-      // Use run method with regular mode
-      const startTime = Date.now();
-      const result = await dataInterpreter.run(message);
-      const endTime = Date.now();
-      
-      logger.info('--- Regular analysis completed ---');
-      logger.info(`Result: ${result.content}`);
-      logger.info(`Analysis took ${(endTime - startTime) / 1000} seconds`);
+    return result.content;
+  }
+  
+  /**
+   * 直接执行代码
+   * @param code 要执行的代码
+   * @returns [结果, 是否成功]
+   */
+  async executeCode(code: string): Promise<[string, boolean]> {
+    return await this.codeExecutor.run(code);
+  }
+  
+  /**
+   * 获取当前工作目录
+   */
+  getCurrentWorkspace(): string {
+    return this.codeExecutor.getCurrentWorkspace();
+  }
+  
+  /**
+   * 清理资源
+   */
+  async cleanup(): Promise<void> {
+    await super.cleanup();
+    if (this.codeExecutor) {
+      await this.codeExecutor.terminate();
     }
-    
-    console.timeEnd('Data analysis total time');
-    logger.info('✅ Data analysis completed!');
-    
-  } catch (error) {
-    logger.error('Error in DataInterpreter example:', error);
-    if (error instanceof Error) {
-      logger.error(`Error type: ${error.name}`);
-      logger.error(`Error message: ${error.message}`);
-      logger.error(`Error stack: ${error.stack}`);
-    }
-    process.exit(1);
   }
 }
 
 /**
- * Check Python environment
+ * 加载配置
+ * 在实际环境中，这些通常来自环境变量
  */
-async function checkPythonEnvironment(): Promise<void> {
-  const { exec } = require('child_process');
-  
-  return new Promise((resolve, reject) => {
-    // Check Python version
-    exec('python --version', (error: any, stdout: string, stderr: string) => {
-      if (error) {
-        logger.error('❌ Python not detected! Please ensure Python is installed and added to PATH.');
-        reject(new Error('Python not found'));
-        return;
-      }
-      
-      logger.info(`✓ Python detected: ${stdout.trim()}`);
-      
-      // Check common data science packages
-      const packages = ['pandas', 'numpy', 'matplotlib', 'seaborn', 'scikit-learn'];
-      let installedCount = 0;
-      let missingPackages: string[] = [];
-      
-      const checkPackage = (index: number) => {
-        if (index >= packages.length) {
-          // All packages checked
-          logger.info(`✓ Installed packages: ${installedCount}/${packages.length}`);
-          
-          if (missingPackages.length > 0) {
-            const pipCmd = `pip install ${missingPackages.join(' ')}`;
-            logger.warn(`⚠️ Missing Python packages: ${missingPackages.join(', ')}`);
-            logger.info(`💡 Suggested command: ${pipCmd}`);
-          }
-          
-          resolve();
-          return;
-        }
-        
-        const pkg = packages[index];
-        exec(`python -c "import ${pkg}" 2>/dev/null`, (err: any) => {
-          if (err) {
-            logger.warn(`✗ Not installed: ${pkg}`);
-            missingPackages.push(pkg);
-          } else {
-            logger.info(`✓ Installed: ${pkg}`);
-            installedCount++;
-          }
-          
-          // Check next package
-          checkPackage(index + 1);
-        });
-      };
-      
-      // Start checking first package
-      checkPackage(0);
-    });
-  });
+function loadConfig(): RunConfig {
+  return {
+    usePlan: true,
+    runMode: 'regular',
+    useReflection: false,
+    maxIterations: 5,
+    dependencyManagement: {
+      enabled: true,
+      autoInstall: true,
+      // 不指定语言，让系统自动检测
+    },
+    codeExecution: {
+      projectPrefix: '数据服务',    // 设置项目名称前缀
+      preserveFiles: true,          // 保留工作目录以便分析
+      baseDir: 'workspace',         // 基础工作目录
+      setupPipLink: true            // 设置pip3到pip的软连接
+    }
+  };
 }
 
-// Run the example
-if (require.main === module) {
-  main().catch(error => logger.error('Unhandled error:', error));
-} 
+/**
+ * 数据解释器示例
+ */
+async function main() {
+  try {
+    // 加载配置
+    const runConfig = loadConfig();
+    
+    logger.info('运行配置:', {
+      usePlan: runConfig.usePlan,
+      runMode: runConfig.runMode,
+      useReflection: runConfig.useReflection,
+      maxIterations: runConfig.maxIterations,
+      dependencyManagement: {
+        enabled: runConfig.dependencyManagement.enabled,
+        autoInstall: runConfig.dependencyManagement.autoInstall,
+        language: runConfig.dependencyManagement.language || '自动检测',
+      },
+      codeExecution: {
+        projectPrefix: runConfig.codeExecution.projectPrefix,
+        preserveFiles: runConfig.codeExecution.preserveFiles,
+        baseDir: runConfig.codeExecution.baseDir || 'workspace',
+        setupPipLink: runConfig.codeExecution.setupPipLink !== false
+      }
+    });
+    
+    // 模拟LLM提供者
+    // 实际使用时应替换为真实的LLM提供者
+    const llmProvider: LLMProvider = {
+      chat: async (message: string): Promise<string> => "LLM聊天模拟响应",
+      generate: async (prompt: string): Promise<string> => "LLM生成模拟响应",
+      getName: () => "Mock LLM Provider",
+      getModel: () => "Mock Model"
+    };
+    
+    // 创建数据解释器实例
+    const interpreter = new EnhancedDataInterpreter({
+      llm: llmProvider,
+      auto_run: true,
+      use_plan: runConfig.usePlan,
+      use_reflection: runConfig.useReflection,
+      react_mode: runConfig.usePlan ? 'plan_and_act' : 'react',
+      max_react_loop: runConfig.maxIterations,
+      outputDir: './output',
+      dependencyManagement: {
+        enabled: runConfig.dependencyManagement.enabled,
+        autoInstall: runConfig.dependencyManagement.autoInstall,
+        language: runConfig.dependencyManagement.language,
+        config: {
+          // 基本配置
+          workDir: './output',
+          userInstall: true
+        } as DependencyManagerConfig
+      },
+      codeExecution: {
+        projectPrefix: runConfig.codeExecution.projectPrefix,
+        preserveFiles: runConfig.codeExecution.preserveFiles,
+        baseDir: runConfig.codeExecution.baseDir,
+        setupPipLink: runConfig.codeExecution.setupPipLink
+      }
+    }, llmProvider);
+    
+    // 直接执行代码示例
+    logger.info('直接执行代码示例');
+    const testCode = `
+import matplotlib.pyplot as plt
+import numpy as np
+
+# 创建数据
+years = [2020, 2021, 2022, 2023]
+sales = [100, 150, 200, 250]
+
+# 绘制柱状图
+plt.figure(figsize=(10, 6))
+plt.bar(years, sales, color='skyblue')
+plt.title('年度销售额')
+plt.xlabel('年份')
+plt.ylabel('销售额')
+plt.grid(axis='y', linestyle='--', alpha=0.7)
+
+# 在柱子上添加数值标签
+for i, v in enumerate(sales):
+    plt.text(years[i], v + 5, str(v), ha='center')
+
+# 显示图表
+plt.tight_layout()
+plt.savefig('sales_chart.png')  # 保存图表
+print("柱状图已生成并保存为sales_chart.png")
+`;
+
+    const [testResult, testSuccess] = await interpreter.executeCode(testCode);
+    if (testSuccess) {
+      logger.info('代码执行成功:', testResult);
+      const workspacePath = interpreter.getCurrentWorkspace();
+      logger.info(`工作目录路径: ${workspacePath}`);
+      logger.info('生成的文件包括main.py, README.md, output.txt和图片文件');
+    } else {
+      logger.error('代码执行失败:', testResult);
+      const workspacePath = interpreter.getCurrentWorkspace();
+      logger.error(`错误详情请查看工作目录: ${workspacePath}`);
+    }
+    
+    // 用户需求
+    const requirement = `
+      分析以下数据并绘制柱状图：
+      年份, 销售额
+      2020, 100
+      2021, 150
+      2022, 200
+      2023, 250
+    `;
+    
+    try {
+      // 根据运行模式执行分析
+      if (runConfig.runMode === 'streaming') {
+        let result = '';
+        
+        // 流式执行，实时获取输出
+        await interpreter.streamAnalyze(
+          requirement,
+          (chunk: string, section: string) => {
+            logger.info(`[${section}] ${chunk}`);
+            result += chunk;
+          }
+        );
+        
+        logger.info('分析完成，结果：', result);
+      } else {
+        // 常规执行，等待完整结果
+        const result = await interpreter.analyze(requirement);
+        logger.info('分析完成，结果：', result);
+      }
+    } catch (error) {
+      logger.error('执行出错：', error);
+    } finally {
+      // 清理资源
+      await interpreter.cleanup();
+    }
+    
+    // 使用说明
+    logger.info('\n--- 多语言依赖管理功能展示 ---');
+    logger.info('本示例展示了MetaGPT-TS的自动依赖管理功能:');
+    logger.info('1. 自动检测代码语言（Python/Node.js）');
+    logger.info('2. 提取代码中的依赖项');
+    logger.info('3. 检查依赖是否已安装');
+    logger.info('4. 自动安装缺失的依赖');
+    logger.info('5. 自动设置pip3到pip的软连接');
+    logger.info('\n配置选项包括:');
+    logger.info('- enabled: 是否启用依赖管理');
+    logger.info('- autoInstall: 是否自动安装缺失依赖');
+    logger.info('- language: 显式指定语言（python/nodejs），或自动检测');
+    logger.info('- projectPrefix: 工作目录前缀，用于标识项目');
+    logger.info('- preserveFiles: 是否保留工作目录，便于分析问题');
+    logger.info('- baseDir: 基础工作目录，所有项目目录将在此目录下创建');
+    logger.info('- setupPipLink: 是否设置pip3到pip的软连接');
+    logger.info('\n工作目录结构:');
+    logger.info('workspace/');
+    logger.info('├── 数据服务-20231101120530/');
+    logger.info('│   ├── main.py             # 主代码文件');
+    logger.info('│   ├── README.md           # 任务描述和说明');
+    logger.info('│   ├── output.txt          # 执行输出（成功时）');
+    logger.info('│   ├── error.txt           # 错误信息（失败时）');
+    logger.info('│   ├── warnings.log        # 警告信息');
+    logger.info('│   ├── requirements.txt    # 依赖项列表');
+    logger.info('│   └── *.png, *.csv等      # 生成的数据文件');
+  } catch (error) {
+    logger.error('程序出错：', error);
+  }
+}
+
+// 执行示例
+main(); 

@@ -12,6 +12,9 @@ import { ArrayMemory } from '../types/memory';
 import type { Task, TaskResult } from '../types/task';
 import { logger } from '../utils/logger';
 import { AIMessage } from '../types/message';
+import type { DependencyManager, DependencyManagerConfig } from '../actions/dependency-manager/dependency-manager';
+import { DependencyManagerFactory } from '../actions/dependency-manager/dependency-manager-factory';
+import type { SupportedLanguage } from '../actions/dependency-manager/dependency-manager-factory';
 
 /**
  * Run mode for data interpreter
@@ -53,17 +56,38 @@ Output a json following the format:
 `;
 
 /**
- * Configuration for DataInterpreter
+ * 依赖管理配置
  */
+export interface DependencyManagementConfig {
+  /** 是否启用依赖管理 */
+  enabled: boolean;
+  /** 是否自动安装缺失的依赖 */
+  autoInstall: boolean;
+  /** 指定语言类型，如果不指定则自动检测 */
+  language?: SupportedLanguage;
+  /** 依赖管理器的配置 */
+  config?: DependencyManagerConfig;
+}
+
 export interface DataInterpreterConfig {
+  /** LLM提供者 */
   llm: LLMProvider;
+  /** 是否自动运行 */
   auto_run?: boolean;
+  /** 是否使用计划 */
   use_plan?: boolean;
+  /** 是否使用反思 */
   use_reflection?: boolean;
-  tools?: string[];
+  /** 反应模式 */
   react_mode?: 'plan_and_act' | 'react';
+  /** 最大反应循环 */
   max_react_loop?: number;
+  /** 输出目录 */
   outputDir?: string;
+  /** 可用工具列表 */
+  tools?: any[];
+  /** 依赖管理配置 */
+  dependencyManagement?: DependencyManagementConfig;
 }
 
 /**
@@ -81,6 +105,10 @@ export class DataInterpreter extends BaseRole {
   max_react_loop: number;
   planner: any = null; // This would be replaced with actual Planner type
   private outputDir: string;
+  private dependencyManager: DependencyManager | null = null;
+  private useAutoLanguageDetection = true;
+  private config: DataInterpreterConfig;
+  private filename: string = '';
 
   /**
    * 构造函数
@@ -94,6 +122,8 @@ export class DataInterpreter extends BaseRole {
       [new WriteAnalysisCode({ llm: config.llm })]
     );
     
+    this.config = config;
+    
     console.log('[DataInterpreter] Initializing with config:', {
       auto_run: config.auto_run ?? true,
       use_plan: config.use_plan ?? true,
@@ -101,6 +131,7 @@ export class DataInterpreter extends BaseRole {
       react_mode: config.react_mode ?? 'plan_and_act',
       max_react_loop: config.max_react_loop ?? 10,
       tools: config.tools?.length ?? 0,
+      dependencyManagement: config.dependencyManagement?.enabled ? 'enabled' : 'disabled',
     });
     
     this.llm = config.llm;
@@ -117,6 +148,9 @@ export class DataInterpreter extends BaseRole {
     if (this.tools.length > 0) {
       this.tool_recommender = new BM25ToolRecommender(this.tools);
     }
+    
+    // Initialize dependency manager if enabled
+    this.initDependencyManager();
     
     // Initialize role
     this.initialize();
@@ -384,12 +418,13 @@ Please provide your response in the following JSON format:
    * 编写并执行代码
    */
   private async writeAndExecCode(maxRetry: number = 3): Promise<[string, string, boolean]> {
-    console.log(`[DataInterpreter] Starting writeAndExecCode with max retries: ${maxRetry}`);
+    logger.info(`[${this.name}] Starting code generation and execution with max retries: ${maxRetry}`);
     
     let counter = 0;
     let success = false;
     let code = '';
     let result = '';
+    let executionError = null;
     
     // Prepare plan status
     const planStatus = this.use_plan && this.planner ? this.planner.get_plan_status() : '';
@@ -402,32 +437,96 @@ Please provide your response in the following JSON format:
       const plan = this.use_plan && this.planner ? this.planner.plan : null;
       
       toolInfo = await this.tool_recommender.getRecommendedToolInfo(context, plan);
+      logger.info(`[${this.name}] Tool recommendation complete, found ${toolInfo ? 'tools to use' : 'no relevant tools'}`);
     }
     
-    // Check data (in a full implementation, this would interact with actual data)
-    await this.checkData();
+    // 提前检查数据和环境
+    logger.info(`[${this.name}] Checking data and Python environment...`);
+    const dataCheckSuccess = await this.checkData();
+    if (!dataCheckSuccess) {
+      logger.warn(`[${this.name}] Data check failed or skipped, proceeding anyway`);
+    }
     
     // Try to write and execute code, with retries
     while (!success && counter < maxRetry) {
-      console.log(`[DataInterpreter] Code execution attempt ${counter + 1} of ${maxRetry}`);
-      
-      // Write code
-      [code] = await this.writeCode();
-      
-      // Add code to working memory
-      if (this.working_memory) {
-        await this.addToWorkingMemory(this.createMessage(code));
-      }
-      
-      // Execute code
-      [result, success] = await this.execute_code.run(code);
-      console.log(`Execution result: ${success ? 'Success' : 'Failed'}`);
-      
-      if (!success) {
-        console.log(`[DataInterpreter] Code execution failed, retrying...`);
+      try {
+        logger.info(`[${this.name}] 🧠 Code generation attempt ${counter + 1} of ${maxRetry}`);
+        
+        // Write code
+        [code] = await this.writeCode();
+        
+        if (!code || code.trim() === '') {
+          logger.error(`[${this.name}] Generated empty code, retrying...`);
+          counter++;
+          continue;
+        }
+        
+        // 在执行代码前检查和安装依赖
+        await this.manageDependencies(code, this.filename);
+        
+        // Add code to working memory
+        if (this.working_memory) {
+          await this.addToWorkingMemory(this.createAnalysisMessage(
+            `Generated Python code (attempt ${counter + 1})`,
+            { code, phase: 'code_generation', attempt: counter + 1 }
+          ));
+        }
+        
+        // Execute code
+        logger.info(`[${this.name}] 🚀 Executing code (attempt ${counter + 1})...`);
+        [result, success] = await this.execute_code.run(code);
+        
+        // Handle execution result
+        if (success) {
+          logger.info(`[${this.name}] ✅ Code execution successful!`);
+          
+          // Add execution result to working memory
+          await this.addToWorkingMemory(this.createAnalysisMessage(
+            result,
+            { phase: 'code_execution', success: true, attempt: counter + 1 }
+          ));
+        } else {
+          logger.warn(`[${this.name}] ❌ Code execution failed (attempt ${counter + 1})`);
+          executionError = new Error(result);
+          
+          // Add error to working memory
+          await this.addToWorkingMemory(this.createErrorMessage(
+            executionError,
+            'EXECUTION_ERROR'
+          ));
+          
+          // Use reflection if enabled after first attempt
+          if (counter > 0 && this.use_reflection) {
+            logger.info(`[${this.name}] Using reflection to improve code...`);
+            // Here we would implement reflection similar to Python version
+          }
+        }
+      } catch (error) {
+        const typedError = error as Error;
+        logger.error(`[${this.name}] Error during code generation/execution:`, typedError);
+        
+        // Add error to working memory
+        await this.addToWorkingMemory(this.createErrorMessage(
+          typedError,
+          'GENERATION_ERROR'
+        ));
+        
+        success = false;
+        executionError = typedError;
       }
       
       counter++;
+    }
+    
+    // Handle final failure after all retries
+    if (!success) {
+      logger.error(`[${this.name}] All ${maxRetry} attempts failed. Last error: ${executionError?.message}`);
+      
+      // Add final failure message to working memory
+      await this.addToWorkingMemory(this.createErrorMessage(
+        new Error(`Failed after ${maxRetry} attempts: ${executionError?.message || 'Unknown error'}`),
+        'MAX_RETRIES_EXCEEDED'
+      ));
     }
     
     return [code, result, success];
@@ -438,6 +537,8 @@ Please provide your response in the following JSON format:
    */
   public async run(message: Message, options?: StreamOptions): Promise<Message> {
     try {
+      logger.info(`[${this.name}] Starting run with${options?.mode === RunMode.STREAMING ? ' streaming' : ' regular'} mode`);
+      
       // Add message to memory
       await this.addToMemory(message);
 
@@ -447,7 +548,19 @@ Please provide your response in the following JSON format:
         return await this.runRegular();
       }
     } catch (error) {
-      logger.error(`[${this.name}] Error in run method: ${error}`);
+      const typedError = error as Error;
+      logger.error(`[${this.name}] Error in run method: ${typedError.message}`);
+      
+      // Add error to working memory if possible
+      try {
+        await this.addToWorkingMemory(this.createErrorMessage(
+          typedError,
+          'RUN_ERROR'
+        ));
+      } catch (memoryError) {
+        logger.error(`[${this.name}] Failed to add error to working memory: ${(memoryError as Error).message}`);
+      }
+      
       return this.createMessage('Cannot determine next action. Please try again.');
     }
   }
@@ -456,51 +569,158 @@ Please provide your response in the following JSON format:
    * Run with streaming output
    */
   private async runWithStreaming(callback?: StreamCallback): Promise<Message> {
-    const sections = ['Data Loading', 'Exploratory Analysis', 'Statistical Analysis', 'Visualization', 'Model Training'];
+    const sections = ['Data Loading', 'Exploratory Analysis', 'Statistical Analysis', 'Visualization', 'Model Training', 'Conclusion'];
     let currentSection = '';
     let fullContent = '';
+    let analysisStartTime = Date.now();
     
     // Store the original generate method
     const originalGenerate = this.llm.generate.bind(this.llm);
 
     try {
+      logger.info(`[${this.name}] Setting up streaming analysis pipeline...`);
       const boundCallback = callback?.bind(this);
       
       // Create a wrapped generate function that maintains the original context
       this.llm.generate = async (prompt: string) => {
-        const response = await originalGenerate(prompt);
-        
-        // Find current section
-        for (const section of sections) {
-          if (response.includes(section)) {
-            currentSection = section;
-            break;
+        try {
+          logger.debug(`[${this.name}] Generating content for prompt (length: ${prompt.length})`);
+          const response = await originalGenerate(prompt);
+          
+          // Find current section
+          for (const section of sections) {
+            if (response.includes(section) && currentSection !== section) {
+              currentSection = section;
+              logger.info(`[${this.name}] 📊 New section detected: ${currentSection}`);
+              break;
+            }
           }
-        }
 
-        // Call streaming callback
-        if (boundCallback) {
-          boundCallback(response, currentSection);
-        }
+          // Call streaming callback
+          if (boundCallback) {
+            try {
+              boundCallback(response, currentSection);
+            } catch (callbackError) {
+              logger.error(`[${this.name}] Error in streaming callback: ${(callbackError as Error).message}`);
+            }
+          }
 
-        fullContent += response;
-        return response;
+          fullContent += response;
+          return response;
+        } catch (error) {
+          const generateError = error as Error;
+          logger.error(`[${this.name}] Error in generate during streaming: ${generateError.message}`);
+          
+          // Add error to memory
+          await this.addToWorkingMemory(this.createErrorMessage(
+            generateError,
+            'STREAMING_GENERATION_ERROR'
+          ));
+          
+          // Propagate error
+          throw generateError;
+        }
       };
 
       // Run the analysis
+      logger.info(`[${this.name}] Starting analysis in ${this.react_mode} mode`);
       const result = this.react_mode === 'react' 
         ? await this.react()
         : await this.planAndAct();
+
+      const analysisTime = ((Date.now() - analysisStartTime) / 1000).toFixed(2);
+      logger.info(`[${this.name}] Analysis completed in ${analysisTime} seconds`);
 
       // Restore original generate method
       this.llm.generate = originalGenerate;
 
       return result;
     } catch (error) {
-      logger.error(`[${this.name}] Error in streaming analysis: ${error}`);
+      const streamError = error as Error;
+      logger.error(`[${this.name}] Error in streaming analysis: ${streamError.message}`, streamError);
+      
       // Restore original generate method in case of error
       this.llm.generate = originalGenerate;
-      return this.createMessage('Error occurred during streaming analysis. Please try again.');
+      
+      // Create error response message
+      const errorMessage = this.createMessage(
+        `Error occurred during streaming analysis: ${streamError.message}. Analysis time: ${((Date.now() - analysisStartTime) / 1000).toFixed(2)}s`
+      );
+      
+      // Add error to memory
+      await this.addToWorkingMemory(this.createErrorMessage(
+        streamError,
+        'STREAMING_ERROR'
+      ));
+      
+      return errorMessage;
+    }
+  }
+
+  /**
+   * Execute in React mode
+   */
+  public override async react(): Promise<Message> {
+    try {
+      let needsMoreAction = true;
+      let loopCount = 0;
+      let lastMessage: Message | null = null;
+      const startTime = Date.now();
+
+      logger.info(`[${this.name}] Starting react loop (max iterations: ${this.max_react_loop})`);
+
+      while (needsMoreAction && loopCount < this.max_react_loop) {
+        logger.info(`[${this.name}] React iteration ${loopCount + 1}/${this.max_react_loop}`);
+        
+        // Think about what to do next
+        needsMoreAction = await this.think();
+        
+        if (needsMoreAction) {
+          // Execute the action
+          logger.info(`[${this.name}] Needs further action, executing act() method`);
+          lastMessage = await this.act();
+        } else {
+          logger.info(`[${this.name}] Analysis complete, no further action needed`);
+        }
+        
+        loopCount++;
+      }
+
+      const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(2);
+      
+      if (loopCount >= this.max_react_loop && needsMoreAction) {
+        logger.warn(`[${this.name}] Reached maximum react loop count (${this.max_react_loop})`);
+        
+        // Add max iterations warning to memory
+        await this.addToWorkingMemory(this.createAnalysisMessage(
+          `Reached maximum iterations (${this.max_react_loop}). Analysis may be incomplete.`,
+          { 
+            warning: true, 
+            maxIterations: this.max_react_loop,
+            elapsedTime: `${elapsedTime}s`
+          }
+        ));
+      }
+      
+      logger.info(`[${this.name}] React loop completed in ${elapsedTime}s after ${loopCount} iterations`);
+
+      // If no message was generated, create a completion message
+      if (!lastMessage) {
+        lastMessage = this.createMessage(`Analysis completed in ${elapsedTime}s after ${loopCount} iterations.`);
+      }
+
+      return lastMessage;
+    } catch (error) {
+      const reactError = error as Error;
+      logger.error(`[${this.name}] Error in react method: ${reactError.message}`, reactError);
+      
+      // Add error to memory
+      await this.addToWorkingMemory(this.createErrorMessage(
+        reactError,
+        'REACT_ERROR'
+      ));
+      
+      return this.createMessage(`Error during analysis: ${reactError.message}. Please try again.`);
     }
   }
 
@@ -509,12 +729,28 @@ Please provide your response in the following JSON format:
    */
   private async runRegular(): Promise<Message> {
     try {
-      return this.react_mode === 'react'
+      logger.info(`[${this.name}] Starting regular analysis in ${this.react_mode} mode`);
+      const startTime = Date.now();
+      
+      const result = this.react_mode === 'react'
         ? await this.react()
         : await this.planAndAct();
+      
+      const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(2);
+      logger.info(`[${this.name}] Regular analysis completed in ${elapsedTime}s`);
+      
+      return result;
     } catch (error) {
-      logger.error(`[${this.name}] Error in regular analysis: ${error}`);
-      return this.createMessage('Error occurred during analysis. Please try again.');
+      const runError = error as Error;
+      logger.error(`[${this.name}] Error in regular analysis: ${runError.message}`, runError);
+      
+      // Add error to memory
+      await this.addToWorkingMemory(this.createErrorMessage(
+        runError,
+        'REGULAR_RUN_ERROR'
+      ));
+      
+      return this.createMessage(`Error during analysis: ${runError.message}. Please try again.`);
     }
   }
 
@@ -522,18 +758,54 @@ Please provide your response in the following JSON format:
    * Check data before analysis
    */
   private async checkData(): Promise<boolean> {
-    const checkAction = new CheckData({ llm: this.llm });
-    const result = await checkAction.run();
-    return result.status === 'completed';
+    logger.info(`[${this.name}] Checking data compatibility...`);
+    try {
+      const checkAction = new CheckData({ llm: this.llm });
+      const result = await checkAction.run();
+      const success = result.status === 'completed';
+      
+      if (success) {
+        logger.info(`[${this.name}] ✅ Data check successful`);
+      } else {
+        logger.warn(`[${this.name}] ⚠️ Data check returned unsuccessful status`);
+      }
+      
+      return success;
+    } catch (error) {
+      const typedError = error as Error;
+      logger.error(`[${this.name}] ❌ Error during data check: ${typedError.message}`);
+      
+      // Add error to working memory
+      await this.addToWorkingMemory(this.createErrorMessage(
+        typedError,
+        'DATA_CHECK_ERROR'
+      ));
+      
+      return false;
+    }
   }
 
   /**
    * Write analysis code
    */
-  private async writeCode(): Promise<string> {
-    const writeAction = new WriteAnalysisCode({ llm: this.llm });
-    const result = await writeAction.run();
-    return result.content;
+  private async writeCode(): Promise<[string, string]> {
+    logger.info(`[${this.name}] Writing analysis code...`);
+    try {
+      const writeAction = new WriteAnalysisCode({ llm: this.llm });
+      const result = await writeAction.run();
+      return [result.content, 'WriteAnalysisCode'];
+    } catch (error) {
+      const typedError = error as Error;
+      logger.error(`[${this.name}] Error writing code: ${typedError.message}`);
+      
+      // Add error to working memory
+      await this.addToWorkingMemory(this.createErrorMessage(
+        typedError,
+        'CODE_WRITING_ERROR'
+      ));
+      
+      return ['', 'ERROR'];
+    }
   }
 
   /**
@@ -592,29 +864,107 @@ Please provide your response in the following JSON format:
   }
 
   /**
-   * Execute in React mode
+   * 初始化依赖管理器
    */
-  public override async react(): Promise<Message> {
-    try {
-      let needsMoreAction = true;
-      let loopCount = 0;
-      let lastMessage: Message | null = null;
-
-      while (needsMoreAction && loopCount < this.max_react_loop) {
-        // Think about what to do next
-        needsMoreAction = await this.think();
-        
-        if (needsMoreAction) {
-          // Execute the action
-          lastMessage = await this.act();
-        }
-        loopCount++;
+  private initDependencyManager(): void {
+    if (this.config.dependencyManagement?.enabled) {
+      if (this.config.dependencyManagement.language) {
+        this.useAutoLanguageDetection = false;
+        this.dependencyManager = DependencyManagerFactory.create(
+          this.config.dependencyManagement.language,
+          this.config.dependencyManagement.config
+        );
+        logger.info(`[${this.name}] Initialized dependency manager for language: ${this.config.dependencyManagement.language}`);
+      } else {
+        this.useAutoLanguageDetection = true;
+        logger.info(`[${this.name}] Will use auto language detection for dependency management`);
       }
+      
+      logger.info(`[${this.name}] Auto-installation of dependencies ${this.config.dependencyManagement.autoInstall ? 'enabled' : 'disabled'}`);
+    } else {
+      logger.info(`[${this.name}] Dependency management disabled`);
+    }
+  }
 
-      return lastMessage || this.createMessage('Analysis completed.');
+  /**
+   * 检查和安装依赖
+   * @param code 代码内容
+   * @param filename 文件名，用于语言检测
+   */
+  private async manageDependencies(code: string, filename: string): Promise<void> {
+    if (!this.config.dependencyManagement?.enabled || !code) {
+      return;
+    }
+    
+    try {
+      // 如果需要自动检测语言
+      if (this.useAutoLanguageDetection) {
+        // 尝试从文件名推断语言
+        let language = DependencyManagerFactory.inferLanguageFromFilename(filename);
+        
+        // 如果无法从文件名推断，尝试从代码推断
+        if (!language) {
+          language = DependencyManagerFactory.inferLanguageFromCode(code);
+        }
+        
+        // 如果成功推断出语言，创建相应的依赖管理器
+        if (language) {
+          this.dependencyManager = DependencyManagerFactory.create(
+            language,
+            this.config.dependencyManagement.config
+          );
+          logger.info(`[${this.name}] Auto-detected language: ${language} for dependency management`);
+        } else {
+          logger.warn(`[${this.name}] Could not detect language for dependency management`);
+          return;
+        }
+      }
+      
+      // 如果有依赖管理器，检查并安装依赖
+      if (this.dependencyManager) {
+        const dependencies = await this.dependencyManager.extractDependencies(code);
+        logger.info(`[${this.name}] Extracted dependencies: ${dependencies.join(', ') || 'none'}`);
+        
+        if (dependencies.length > 0) {
+          const analysisResult = await this.dependencyManager.checkDependencies(dependencies);
+          logger.info(`[${this.name}] Dependency check result: ${analysisResult.missingDependencies.length} missing`);
+          
+          if (analysisResult.missingDependencies.length > 0 && this.config.dependencyManagement.autoInstall) {
+            logger.info(`[${this.name}] Installing missing dependencies: ${analysisResult.missingDependencies.join(', ')}`);
+            const installResult = await this.dependencyManager.installDependencies(analysisResult.missingDependencies);
+            
+            if (installResult.success) {
+              logger.info(`[${this.name}] Successfully installed dependencies`);
+            } else {
+              logger.warn(`[${this.name}] Failed to install some dependencies: ${installResult.failed.join(', ')}`);
+            }
+          }
+        }
+      }
     } catch (error) {
-      logger.error(`[${this.name}] Error in react method: ${error}`);
-      return this.createMessage('Error occurred during analysis. Please try again.');
+      logger.error(`[${this.name}] Error in dependency management: ${error}`);
+      // 依赖管理失败不应影响代码执行
+    }
+  }
+
+  /**
+   * 清理资源
+   */
+  public async cleanup(): Promise<void> {
+    try {
+      // 终止执行引擎
+      if (this.execute_code) {
+        await this.execute_code.terminate();
+      }
+      
+      // 清理依赖管理器
+      if (this.dependencyManager && typeof this.dependencyManager.cleanup === 'function') {
+        await this.dependencyManager.cleanup();
+      }
+      
+      logger.info(`[${this.name}] Cleanup completed`);
+    } catch (error) {
+      logger.error(`[${this.name}] Error during cleanup: ${error}`);
     }
   }
 }
