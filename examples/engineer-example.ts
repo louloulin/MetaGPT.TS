@@ -3,6 +3,7 @@ import { WriteCode } from '../src/actions/write-code';
 import { VercelLLMProvider } from '../src/provider/vercel-llm';
 import { UserMessage } from '../src/types/message';
 import { logger, LogLevel } from '../src/utils/logger';
+import { createLLMProvider } from './llm-provider';
 
 // Set log level
 logger.setLevel(LogLevel.DEBUG);
@@ -14,43 +15,45 @@ async function main() {
   try {
     console.log('Starting Engineer example...');
     
-    // Create LLM provider
-    const llmProvider = new VercelLLMProvider({
-      providerType: 'openai',
-      apiKey: process.env.OPENAI_API_KEY || '',
-      model: 'gpt-3.5-turbo',
-    });
+    // 创建 LLM Provider
+    const provider = createLLMProvider(
+      '你是一个IT工程师，编程大师，擅长编写高质量代码'
+    );
     
-    // Create WriteCode action
+    // Create WriteCode action with LLM
     const writeCodeAction = new WriteCode({
       name: 'WriteCode',
       description: 'Writes code based on requirements',
-      llm: llmProvider,
+      llm: provider,
+      args: {
+        language: 'typescript'
+      }
     });
     
-    // Create Engineer role with the WriteCode action
+    // 修改：创建Engineer角色，并使用初始化好的LLM
     const engineer = new Engineer(
       'CodeEngineer',
+      provider,
       'TypeScript Developer',
       'Write high-quality TypeScript code',
       'Follow best practices and coding standards',
       [writeCodeAction]
     );
     
-    // Set react mode
+    // 设置反应模式
     engineer.setReactMode('react', 1);
     
-    // Create a user message with a coding task
+    // 用户消息
     const userMessage = new UserMessage(
       'Please implement a simple TypeScript function that calculates the Fibonacci sequence up to n terms.'
     );
     
     console.log('Sending request to Engineer...');
     
-    // Run the engineer role with the user message
+    // 运行Engineer角色处理用户请求
     const response = await engineer.run(userMessage);
     
-    // Display the response
+    // 显示响应结果
     console.log('\n--- Engineer Response ---');
     console.log(response.content);
     console.log('------------------------\n');
