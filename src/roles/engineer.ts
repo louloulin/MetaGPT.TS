@@ -65,7 +65,26 @@ export class Engineer extends BaseRole {
       `;
       
       try {
-        return await this.llm.chat(prompt);
+        logger.info(`[${this.name}] Sending analysis prompt to LLM (stream mode)...`);
+        
+        // Check if chatStream is available and use it for streaming
+        if (this.llm.chatStream) {
+          let fullResponse = '';
+          logger.info(`[${this.name}] Using stream mode for analysis...`);
+          
+          // Use chatStream to get streaming responses
+          for await (const chunk of this.llm.chatStream(prompt)) {
+            process.stdout.write(chunk); // Display chunks in real-time
+            fullResponse += chunk;
+          }
+          console.log(); // Add newline after streaming finishes
+          
+          return fullResponse;
+        } else {
+          // Fallback to regular chat if streaming not available
+          logger.info(`[${this.name}] Stream mode not available, using regular chat...`);
+          return await this.llm.chat(prompt);
+        }
       } catch (error) {
         logger.error(`[${this.name}] Error analyzing task with role LLM:`, error);
       }
@@ -88,7 +107,25 @@ export class Engineer extends BaseRole {
       `;
       
       try {
-        return await llm.chat(prompt);
+        logger.info(`[${this.name}] Sending analysis prompt to action's LLM...`);
+        
+        // Try to use chatStream if available
+        if (llm.chatStream) {
+          let fullResponse = '';
+          logger.info(`[${this.name}] Using stream mode for analysis with action's LLM...`);
+          
+          // Use chatStream to get streaming responses
+          for await (const chunk of llm.chatStream(prompt)) {
+            process.stdout.write(chunk); // Display chunks in real-time
+            fullResponse += chunk;
+          }
+          console.log(); // Add newline after streaming finishes
+          
+          return fullResponse;
+        } else {
+          // Fallback to regular chat
+          return await llm.chat(prompt);
+        }
       } catch (error) {
         logger.error(`[${this.name}] Error analyzing task with action LLM:`, error);
         return `Failed to analyze task: ${error}`;
@@ -118,12 +155,33 @@ export class Engineer extends BaseRole {
       const actionWithArgs = action as any;
       if (actionWithArgs.args && actionWithArgs.args.requirements) {
         logger.info(`[${this.name}] Processing requirements: ${String(actionWithArgs.args.requirements).substring(0, 100)}...`);
+      } else if (actionWithArgs.args && actionWithArgs.args.language) {
+        logger.info(`[${this.name}] Target language: ${actionWithArgs.args.language}`);
       }
       
-      const result = await action.run();
+      // Set timeout for the action
+      const timeoutPromise = new Promise<{status: string, content: string}>((_, reject) => {
+        setTimeout(() => reject(new Error('WriteCode action timed out after 60 seconds')), 60000);
+      });
+      
+      // Run the action with timeout
+      logger.info(`[${this.name}] Executing ${action.name} action...`);
+      const resultPromise = action.run();
+      
+      let result;
+      try {
+        result = await Promise.race([resultPromise, timeoutPromise]);
+      } catch (error) {
+        logger.error(`[${this.name}] Timeout or error executing ${action.name}:`, error);
+        // If timeout, we still try to continue with the original promise
+        result = await resultPromise;
+      }
+      
       if (result.status === 'completed') {
+        logger.info(`[${this.name}] Successfully completed ${action.name}`);
         return this.createMessage(result.content);
       } else {
+        logger.error(`[${this.name}] Failed to execute ${action.name}: ${result.content}`);
         return this.createMessage(`Failed to execute ${action.name}: ${result.content}`);
       }
     } catch (error) {

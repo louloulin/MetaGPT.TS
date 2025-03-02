@@ -26,6 +26,7 @@ async function main() {
       description: 'Writes code based on requirements',
       llm: provider,
       args: {
+        requirements: 'Please implement a simple TypeScript function that calculates the Fibonacci sequence up to n terms.',
         language: 'typescript'
       }
     });
