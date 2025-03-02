@@ -26,53 +26,39 @@ async function main() {
     memory_limit: 100
   });
 
-  // 示例 1: 回答一般性问题
-  logger.info('=== 回答问题 ===');
-  const question = new UserMessage('什么是人工智能？请用简单的话解释。');
-  assistant.context.memory.add(question);
-  await assistant.think();
-  const todo = assistant.context.todo;
-  if (todo) {
-    const answer = await todo.run();
-    logger.info('回答:', answer);
-  }
+  try {
+    // 示例 1: 回答一般性问题
+    logger.info('=== 回答问题 ===');
+    const question = new UserMessage('什么是人工智能？请用简单的话解释。');
+    const answer = await assistant.run(question);
+    logger.info('回答:', answer.content);
 
-  // 示例 2: 提供建议
-  logger.info('\n=== 提供建议 ===');
-  const adviceRequest = new UserMessage('我想学习编程，应该从哪里开始？');
-  assistant.context.memory.add(adviceRequest);
-  await assistant.think();
-  const adviceTodo = assistant.context.todo;
-  if (adviceTodo) {
-    const advice = await adviceTodo.run();
-    logger.info('建议:', advice);
-  }
+    // 示例 2: 提供建议
+    logger.info('\n=== 提供建议 ===');
+    const adviceRequest = new UserMessage('我想学习编程，应该从哪里开始？');
+    const advice = await assistant.run(adviceRequest);
+    logger.info('建议:', advice.content);
 
-  // 示例 3: 解决问题
-  logger.info('\n=== 解决问题 ===');
-  const problem = new UserMessage('我的电脑运行很慢，有什么基本的排查步骤吗？');
-  assistant.context.memory.add(problem);
-  await assistant.think();
-  const problemTodo = assistant.context.todo;
-  if (problemTodo) {
-    const solution = await problemTodo.run();
-    logger.info('解决方案:', solution);
-  }
+    // 示例 3: 解决问题
+    logger.info('\n=== 解决问题 ===');
+    const problem = new UserMessage('我的电脑运行很慢，有什么基本的排查步骤吗？');
+    const solution = await assistant.run(problem);
+    logger.info('解决方案:', solution.content);
 
-  // 示例 4: 信息总结
-  logger.info('\n=== 信息总结 ===');
-  const text = new UserMessage(`
-    人工智能(AI)是计算机科学的一个分支，致力于创建能够模仿人类智能的系统。
-    机器学习是AI的一个重要组成部分，它使用数据来训练模型。
-    深度学习是机器学习的一个子集，使用多层神经网络来学习数据的特征。
-    请总结这段文字的要点。
-  `);
-  assistant.context.memory.add(text);
-  await assistant.think();
-  const summaryTodo = assistant.context.todo;
-  if (summaryTodo) {
-    const summary = await summaryTodo.run();
-    logger.info('总结:', summary);
+    // 示例 4: 信息总结
+    logger.info('\n=== 信息总结 ===');
+    const text = new UserMessage(`
+      人工智能(AI)是计算机科学的一个分支，致力于创建能够模仿人类智能的系统。
+      机器学习是AI的一个重要组成部分，它使用数据来训练模型。
+      深度学习是机器学习的一个子集，使用多层神经网络来学习数据的特征。
+      请总结这段文字的要点。
+    `);
+    const summary = await assistant.run(text);
+    logger.info('总结:', summary.content);
+
+  } catch (error) {
+    logger.error('运行出错:', error);
+    process.exit(1);
   }
 }
 

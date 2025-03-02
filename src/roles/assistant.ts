@@ -9,9 +9,61 @@
 import { BaseRole } from './base-role';
 import type { Message } from '../types/message';
 import type { LLMProvider } from '../types/llm';
-import type { Action, ActionOutput } from '../types/action';
+import type { Action, ActionOutput, ActionContext } from '../types/action';
 import { logger } from '../utils/logger';
 import type { RoleReactMode } from '../types/role';
+
+/**
+ * Basic action for handling queries
+ */
+class HandleQueryAction implements Action {
+  name: string;
+  desc?: string;
+  context: ActionContext;
+  llm: LLMProvider;
+  prefix: string;
+  
+  constructor(llm: LLMProvider) {
+    this.name = 'HandleQuery';
+    this.desc = 'Handles general queries and provides responses';
+    this.llm = llm;
+    this.prefix = 'handle_query';
+    this.context = {
+      name: this.name,
+      description: this.desc || '',
+      memory: null,
+      workingMemory: null,
+      llm: this.llm
+    };
+  }
+
+  async run(): Promise<ActionOutput> {
+    try {
+      const response = await this.llm.chat('How can I help you?');
+      
+      return {
+        status: 'completed',
+        content: response || 'No response generated',
+        instructContent: null
+      };
+    } catch (error) {
+      return this.handleException(error as Error);
+    }
+  }
+
+  async handleException(error: Error): Promise<ActionOutput> {
+    logger.error('[HandleQueryAction] Error processing query:', error);
+    return {
+      status: 'failed',
+      content: 'Error processing your request',
+      instructContent: null
+    };
+  }
+
+  setPrefix(prefix: string): void {
+    this.prefix = prefix;
+  }
+}
 
 /**
  * Configuration interface for the Assistant role
@@ -52,113 +104,23 @@ export class Assistant extends BaseRole {
       memory_limit = 100
     } = config;
 
-    super(name, profile, goal, constraints);
+    // Initialize base role with required parameters
+    super(
+      name,
+      profile,
+      goal,
+      constraints,
+      [new HandleQueryAction(llm)],
+      'General purpose AI assistant that can handle various tasks and queries'
+    );
 
     this.llm = llm;
     this.capabilities = capabilities;
     this.specialties = specialties;
     this.memoryLimit = memory_limit;
-
-    this.desc = 'Provides general assistance and handles various tasks adaptively';
-    
-    // Initialize role
-    this.initialize();
     
     // Set react mode
     this.setReactMode(react_mode, max_react_loop);
-  }
-
-  /**
-   * Initialize the Assistant role
-   */
-  private initialize(): void {
-    logger.info('[Assistant] Initializing role');
-    
-    // Initialize actions (to be implemented)
-    // this.actions = [
-    //   new HandleQuery({ llm: this.llm }),
-    //   new ManageTask({ llm: this.llm }),
-    //   new ProvideInformation({ llm: this.llm }),
-    //   new CollaborateWithRoles({ llm: this.llm })
-    // ];
-    
-    logger.info('[Assistant] Initialization complete');
-  }
-
-  /**
-   * Clean up old messages if memory limit is exceeded
-   */
-  private async cleanupMemory(): Promise<void> {
-    try {
-      const messages = this.context.memory.get();
-      if (messages.length > this.memoryLimit) {
-        // Sort messages by importance and timestamp
-        const sortedMessages = [...messages].sort((a, b) => {
-          const importanceDiff = (b.metadata?.importance || 0.5) - (a.metadata?.importance || 0.5);
-          if (importanceDiff !== 0) return importanceDiff;
-          return (b.timestamp || 0) - (a.timestamp || 0);
-        });
-
-        // Keep only the most important messages within the limit
-        const toKeep = sortedMessages.slice(0, this.memoryLimit);
-        const toRemove = sortedMessages.slice(this.memoryLimit);
-        
-        // Remove excess messages
-        for (const msg of toRemove) {
-          await this.context.memory.remove(msg.id);
-        }
-
-        logger.info(`[Assistant] Cleaned up memory to stay within limit of ${this.memoryLimit} messages`);
-      }
-    } catch (error) {
-      logger.error(`[Assistant] Error during memory cleanup: ${error}`);
-      throw error;
-    }
-  }
-
-  /**
-   * Override addToMemory to enforce memory limit
-   */
-  protected async addToMemory(message: Message): Promise<void> {
-    try {
-      // Check if adding this message would exceed the limit
-      const currentMessages = this.context.memory.get();
-      if (currentMessages.length >= this.memoryLimit) {
-        // Clean up before adding new message
-        await this.cleanupMemory();
-      }
-
-      // Add the message
-      await super.addToMemory(message);
-    } catch (error) {
-      logger.error(`[Assistant] Error adding message to memory: ${error}`);
-      throw error;
-    }
-  }
-
-  /**
-   * Think about the next action based on the current context and message
-   */
-  public async think(): Promise<boolean> {
-    const messages = this.context.memory.get();
-    const lastMessage = messages[messages.length - 1];
-
-    if (!lastMessage) {
-      logger.debug('[Assistant] No messages in memory for thinking');
-      return false;
-    }
-
-    logger.debug(`[Assistant] Thinking about message: ${lastMessage.content}`);
-
-    // TODO: Implement logic to:
-    // 1. Analyze user's query/request
-    // 2. Determine required capabilities
-    // 3. Select appropriate action
-    // 4. Consider context and history
-    // 5. Plan collaboration if needed
-
-    // For now, return true to indicate thinking was performed
-    return true;
   }
 
   /**
@@ -215,6 +177,5 @@ export class Assistant extends BaseRole {
   public setMemoryLimit(limit: number): void {
     this.memoryLimit = limit;
     logger.info(`[Assistant] Memory limit updated to: ${limit}`);
-    this.cleanupMemory();
   }
 } 
