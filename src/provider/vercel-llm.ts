@@ -41,10 +41,27 @@
  * ```
  */
 
-import { generateText } from 'ai';
+import { generateText, streamText } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import type { LLMConfig, LLMProvider } from '../types/llm';
+import { createRetryMiddleware } from './vercel-retry-middleware';
+import type { RetryMiddlewareOptions } from './vercel-retry-middleware';
+import winston from 'winston';
+
+// 设置记录器
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.printf(({ level, message, timestamp }) => {
+      return `${timestamp} ${level}: ${message}`;
+    })
+  ),
+  transports: [
+    new winston.transports.Console(),
+  ]
+});
 
 /**
  * 支持的模型提供商类型
@@ -52,20 +69,36 @@ import type { LLMConfig, LLMProvider } from '../types/llm';
 export type ModelProviderType = 'openai' | 'qwen' | 'anthropic' | 'mistral' | 'google' | 'custom';
 
 /**
- * 模型提供商配置
+ * 提供商配置模式
  */
 export const ModelProviderConfigSchema = z.object({
-  providerType: z.enum(['openai', 'qwen', 'anthropic', 'mistral', 'google', 'custom']).default('openai'),
+  providerType: z.enum(['openai', 'qwen', 'anthropic', 'mistral', 'google', 'custom']),
   apiKey: z.string(),
-  baseURL: z.string().optional(),
   model: z.string().optional(),
+  baseURL: z.string().optional(),
   extraConfig: z.record(z.any()).optional(),
+  retryOptions: z.object({
+    maxRetries: z.number().optional(),
+    baseDelay: z.number().optional(),
+    maxDelay: z.number().optional(),
+    factor: z.number().optional(),
+  }).optional(),
 });
+
+/**
+ * LLM配置扩展类型，用于支持额外配置
+ */
+interface ExtendedLLMConfig extends LLMConfig {
+  extraConfig?: {
+    abortSignal?: AbortSignal;
+    [key: string]: any;
+  };
+}
 
 export type ModelProviderConfig = z.infer<typeof ModelProviderConfigSchema>;
 
 /**
- * 基于 Vercel AI SDK 的通用 LLM 提供商实现
+ * Vercel LLM 提供者实现
  */
 export class VercelLLMProvider implements LLMProvider {
   private config: ModelProviderConfig;
@@ -78,16 +111,31 @@ export class VercelLLMProvider implements LLMProvider {
     google: null,
     custom: null,
   };
-
+  private retryMiddleware: ReturnType<typeof createRetryMiddleware>;
+  
+  /**
+   * 构造函数
+   * @param config 提供商配置
+   */
   constructor(config: ModelProviderConfig) {
     this.config = ModelProviderConfigSchema.parse(config);
     this.setupEnvironment();
     this.loadProviderModules();
+    
+    // 初始化重试中间件
+    const retryOptions: RetryMiddlewareOptions = {
+      maxRetries: this.config.retryOptions?.maxRetries ?? 3,
+      baseDelay: this.config.retryOptions?.baseDelay ?? 1000,
+      maxDelay: this.config.retryOptions?.maxDelay ?? 10000,
+      factor: this.config.retryOptions?.factor ?? 2,
+      onRetry: (error, attempt) => {
+        logger.warn(`Retrying LLM call (${attempt}/${this.config.retryOptions?.maxRetries ?? 3}) due to: ${error.message}`);
+      }
+    };
+    
+    this.retryMiddleware = createRetryMiddleware(retryOptions);
   }
 
-  /**
-   * 设置环境变量
-   */
   private setupEnvironment(): void {
     // 根据不同提供商设置对应的环境变量
     switch (this.config.providerType) {
@@ -104,6 +152,30 @@ export class VercelLLMProvider implements LLMProvider {
           process.env.DASHSCOPE_API_KEY = this.config.apiKey;
         }
         // 注意: baseURL会在createQwen时设置，不需要设置环境变量
+        break;
+      case 'anthropic':
+        if (process.env.ANTHROPIC_API_KEY !== this.config.apiKey) {
+          process.env.ANTHROPIC_API_KEY = this.config.apiKey;
+        }
+        if (this.config.baseURL) {
+          process.env.ANTHROPIC_API_URL = this.config.baseURL;
+        }
+        break;
+      case 'mistral':
+        if (process.env.MISTRAL_API_KEY !== this.config.apiKey) {
+          process.env.MISTRAL_API_KEY = this.config.apiKey;
+        }
+        if (this.config.baseURL) {
+          process.env.MISTRAL_API_URL = this.config.baseURL;
+        }
+        break;
+      case 'google':
+        if (process.env.GOOGLE_API_KEY !== this.config.apiKey) {
+          process.env.GOOGLE_API_KEY = this.config.apiKey;
+        }
+        if (this.config.baseURL) {
+          process.env.GOOGLE_API_URL = this.config.baseURL;
+        }
         break;
       // 其他提供商的环境变量设置...
       default:
@@ -145,31 +217,31 @@ export class VercelLLMProvider implements LLMProvider {
             } else {
               // 回退到传统方式
               this.providerFunctions.qwen = module.qwen;
-              console.warn('Using legacy qwen provider. For more customization options, upgrade to newer qwen-ai-provider with createQwen support.');
+              logger.warn('Using legacy qwen provider. For more customization options, upgrade to newer qwen-ai-provider with createQwen support.');
             }
           }).catch(err => {
-            console.warn(`Failed to load qwen provider: ${err.message}. Make sure 'qwen-ai-provider' is installed.`);
+            logger.warn(`Failed to load qwen provider: ${err.message}. Make sure 'qwen-ai-provider' is installed.`);
           });
           break;
         case 'anthropic':
           import('@ai-sdk/anthropic').then(module => {
             this.providerFunctions.anthropic = module.anthropic;
           }).catch(err => {
-            console.warn(`Failed to load anthropic provider: ${err.message}. Make sure '@ai-sdk/anthropic' is installed.`);
+            logger.warn(`Failed to load anthropic provider: ${err.message}. Make sure '@ai-sdk/anthropic' is installed.`);
           });
           break;
         case 'mistral':
           import('@ai-sdk/mistral').then(module => {
             this.providerFunctions.mistral = module.mistral;
           }).catch(err => {
-            console.warn(`Failed to load mistral provider: ${err.message}. Make sure '@ai-sdk/mistral' is installed.`);
+            logger.warn(`Failed to load mistral provider: ${err.message}. Make sure '@ai-sdk/mistral' is installed.`);
           });
           break;
         case 'google':
           import('@ai-sdk/google').then(module => {
             this.providerFunctions.google = module.google;
           }).catch(err => {
-            console.warn(`Failed to load google provider: ${err.message}. Make sure '@ai-sdk/google' is installed.`);
+            logger.warn(`Failed to load google provider: ${err.message}. Make sure '@ai-sdk/google' is installed.`);
           });
           break;
         case 'custom':
@@ -177,12 +249,12 @@ export class VercelLLMProvider implements LLMProvider {
           if (this.config.extraConfig?.modelFunction) {
             this.providerFunctions.custom = this.config.extraConfig.modelFunction;
           } else {
-            console.warn('Custom provider specified but no modelFunction provided in extraConfig');
+            logger.warn('Custom provider specified but no modelFunction provided in extraConfig');
           }
           break;
       }
     } catch (error) {
-      console.error('Error loading provider modules:', error);
+      logger.error('Error loading provider modules:', error);
     }
   }
 
@@ -192,18 +264,30 @@ export class VercelLLMProvider implements LLMProvider {
    * @returns 模型函数调用结果
    */
   private getModelFunction(modelName?: string): any {
-    const provider = this.providerFunctions[this.config.providerType];
-    if (!provider) {
-      throw new Error(`Provider ${this.config.providerType} not loaded or not available`);
+    const providerFunction = this.providerFunctions[this.config.providerType];
+    
+    if (!providerFunction) {
+      throw new Error(`Provider function for ${this.config.providerType} not loaded. Check if the required package is installed.`);
     }
     
-    return provider(modelName || this.config.model || this.getDefaultModel());
+    // 使用指定的模型名称或默认模型
+    const model = modelName || this.getDefaultModel();
+    
+    // 调用提供商函数获取特定模型
+    return providerFunction(model);
   }
 
   /**
-   * 获取提供商的默认模型
+   * 获取默认的模型名称
+   * @returns 默认模型名称
    */
   private getDefaultModel(): string {
+    // 如果配置中指定了模型，则使用配置中的模型
+    if (this.config.model) {
+      return this.config.model;
+    }
+    
+    // 否则根据提供商类型返回默认模型
     switch (this.config.providerType) {
       case 'openai':
         return 'gpt-3.5-turbo';
@@ -212,11 +296,12 @@ export class VercelLLMProvider implements LLMProvider {
       case 'anthropic':
         return 'claude-3-sonnet-20240229';
       case 'mistral':
-        return 'mistral-large-latest';
+        return 'mistral-small-latest';
       case 'google':
         return 'gemini-pro';
       case 'custom':
-        return this.config.extraConfig?.defaultModel || 'default-model';
+        // 自定义提供商应在extraConfig中提供默认模型
+        return this.config.extraConfig?.defaultModel || 'default';
       default:
         return 'gpt-3.5-turbo';
     }
@@ -225,21 +310,20 @@ export class VercelLLMProvider implements LLMProvider {
   /**
    * 生成文本
    * @param prompt 提示词
-   * @param config 配置选项
+   * @param config 可选配置
    * @returns 生成的文本
    */
-  async generate(prompt: string, config?: Partial<LLMConfig>): Promise<string> {
+  async generate(prompt: string, config?: Partial<ExtendedLLMConfig>): Promise<string> {
     try {
+      logger.debug(`Generating text with ${this.config.providerType}/${config?.model || this.getDefaultModel()}`);
+      
       // 确保提供商模块已加载完成
       if (this.config.providerType !== 'openai' && !this.providerFunctions[this.config.providerType]) {
         await new Promise(resolve => setTimeout(resolve, 1000)); // 等待动态导入完成
       }
-
-      // @ts-ignore - Type compatibility issue between different versions of AI SDK
-      const model = this.getModelFunction(config?.model);
       
-      // 导入generateText函数
-      const { generateText } = await import('ai');
+      // 获取模型函数
+      const model = this.getModelFunction(config?.model);
       
       // 准备配置选项
       const generateOptions: any = {
@@ -250,6 +334,8 @@ export class VercelLLMProvider implements LLMProvider {
         topP: config?.topP,
         frequencyPenalty: config?.frequencyPenalty,
         presencePenalty: config?.presencePenalty,
+        headers: this.config.extraConfig?.headers || {},
+        middleware: [this.retryMiddleware],
         ...this.config.extraConfig?.generateOptions,
       };
       
@@ -258,35 +344,32 @@ export class VercelLLMProvider implements LLMProvider {
         generateOptions.system = this.systemPrompt;
       }
       
+      // 调用AI SDK生成文本
       const result = await generateText(generateOptions);
+      
       return result.text;
     } catch (error) {
-      console.error(`${this.config.providerType} provider error:`, error);
-      if (error instanceof Error) {
-        throw error;
-      }
-      throw new Error(`Unknown ${this.config.providerType} provider error`);
+      return this.handleError(error);
     }
   }
 
   /**
    * 生成文本流
    * @param prompt 提示词
-   * @param config 配置选项
-   * @returns 生成的文本流
+   * @param config 可选配置
+   * @returns 文本流
    */
-  async *generateStream(prompt: string, config?: Partial<LLMConfig>): AsyncGenerator<string> {
+  async *generateStream(prompt: string, config?: Partial<ExtendedLLMConfig>): AsyncGenerator<string> {
     try {
+      logger.debug(`Streaming text with ${this.config.providerType}/${config?.model || this.getDefaultModel()}`);
+      
       // 确保提供商模块已加载完成
       if (this.config.providerType !== 'openai' && !this.providerFunctions[this.config.providerType]) {
         await new Promise(resolve => setTimeout(resolve, 1000)); // 等待动态导入完成
       }
 
-      // @ts-ignore - Type compatibility issue between different versions of AI SDK
+      // 获取模型函数
       const model = this.getModelFunction(config?.model);
-      
-      // 导入streamText函数
-      const { streamText } = await import('ai');
       
       // 准备配置选项
       const streamOptions: any = {
@@ -297,6 +380,8 @@ export class VercelLLMProvider implements LLMProvider {
         topP: config?.topP,
         frequencyPenalty: config?.frequencyPenalty,
         presencePenalty: config?.presencePenalty,
+        headers: this.config.extraConfig?.headers || {},
+        abortSignal: config?.extraConfig?.abortSignal, // 支持中断请求
         ...this.config.extraConfig?.generateOptions,
       };
       
@@ -305,59 +390,40 @@ export class VercelLLMProvider implements LLMProvider {
         streamOptions.system = this.systemPrompt;
       }
       
-      // 创建流式响应
-      const streamResult = await streamText(streamOptions);
+      // 创建流式响应并支持错误处理
+      let streamResult;
+      try {
+        streamResult = await streamText(streamOptions);
+      } catch (error) {
+        throw this.handleError(error);
+      }
       
-      // 获取文本流
-      const textStream = streamResult.textStream;
+      // 使用fullStream以支持处理流中的错误事件
+      const fullStream = streamResult.fullStream;
       
-      // 逐个返回流式响应的文本块
-      for await (const chunk of textStream) {
-        yield chunk;
+      // 逐个返回流式响应的文本块或处理错误
+      for await (const part of fullStream) {
+        if (part.type === 'error') {
+          throw part.error;
+        } else if (part.type === 'text-delta') {
+          yield part.textDelta;
+        }
       }
     } catch (error) {
+      // 在流处理过程中发生错误时抛出
       throw this.handleError(error);
     }
   }
 
   /**
-   * Chat with the LLM using streaming
-   * @param message - Message to send
-   * @returns LLM response stream
+   * 聊天流式返回
+   * @param message 消息
+   * @returns LLM响应流
    */
   async *chatStream(message: string): AsyncGenerator<string> {
     try {
-      // 导入streamText函数
-      const { streamText } = await import('ai');
-      
-      // 确保提供商模块已加载完成
-      if (this.config.providerType !== 'openai' && !this.providerFunctions[this.config.providerType]) {
-        await new Promise(resolve => setTimeout(resolve, 1000)); // 等待动态导入完成
-      }
-      
-      // @ts-ignore - Type compatibility issue between different versions of AI SDK
-      const model = this.getModelFunction();
-      
-      // 准备配置选项
-      const streamOptions: any = {
-        model,
-        prompt: message,
-        ...this.config.extraConfig?.generateOptions,
-      };
-      
-      // 如果有系统提示，添加到配置中
-      if (this.systemPrompt && !streamOptions.system) {
-        streamOptions.system = this.systemPrompt;
-      }
-      
-      // 创建流式响应
-      const streamResult = await streamText(streamOptions);
-      
-      // 获取文本流
-      const textStream = streamResult.textStream;
-      
-      // 逐个返回流式响应的文本块
-      for await (const chunk of textStream) {
+      // 调用生成文本流
+      for await (const chunk of this.generateStream(message)) {
         yield chunk;
       }
     } catch (error) {
@@ -366,104 +432,114 @@ export class VercelLLMProvider implements LLMProvider {
   }
 
   /**
-   * 嵌入文本
-   * @param text 要嵌入的文本
+   * 生成文本嵌入向量
+   * @param text 输入文本
    * @returns 嵌入向量
    */
   async embed(text: string): Promise<number[]> {
     try {
-      // Note: For embeddings in the newer Vercel AI SDK, we'd typically use:
-      // import { generateEmbedding } from 'ai/embedding';
+      // 目前仅支持OpenAI和某些特定提供商的嵌入功能
+      if (this.config.providerType !== 'openai' && !this.config.extraConfig?.embeddingFunction) {
+        throw new Error(`Embedding not supported for provider: ${this.config.providerType}`);
+      }
       
-      // This is a temporary implementation - in a real application,
-      // you would implement this based on the AI SDK's embedding functionality
-      console.warn(`Embedding functionality not yet implemented for ${this.config.providerType} provider`);
+      // 使用OpenAI或自定义嵌入函数
+      if (this.config.providerType === 'openai') {
+        // 动态导入所需模块
+        const { openai } = await import('@ai-sdk/openai');
+        
+        try {
+          // 尝试使用generateEmbedding API (新版本)
+          const ai = await import('ai');
+          if ('generateEmbedding' in ai) {
+            // 使用类型断言解决类型问题
+            const generateEmbedding = ai.generateEmbedding as any;
+            const embeddingResult = await generateEmbedding({
+              model: openai('text-embedding-3-small'),
+              text,
+              middleware: [this.retryMiddleware],
+            });
+            return embeddingResult.embedding;
+          }
+        } catch (error) {
+          logger.warn('Failed to use generateEmbedding API, falling back to custom implementation');
+        }
+        
+        // 旧版本或自定义实现
+        // TODO: 实现OpenAI嵌入功能的备用方案
+        throw new Error('Advanced embedding API not available. Please upgrade AI SDK.');
+      } else if (this.config.extraConfig?.embeddingFunction) {
+        // 使用自定义嵌入函数
+        return await this.config.extraConfig.embeddingFunction(text);
+      }
       
-      // Placeholder implementation
-      return new Array(1536).fill(0).map(() => Math.random());
+      throw new Error(`Embedding function not available for provider: ${this.config.providerType}`);
     } catch (error) {
       throw this.handleError(error);
     }
   }
 
   /**
-   * 错误处理
-   * @param error 原始错误
-   * @returns 标准化的错误
+   * 处理错误
+   * @param error 错误对象
+   * @returns 格式化的错误
    */
-  private handleError(error: unknown): Error {
-    console.error(`${this.config.providerType} provider error:`, error);
+  private handleError(error: unknown): never {
+    const errorMessage = error instanceof Error 
+      ? error.message 
+      : 'Unknown error';
+      
+    logger.error(`${this.config.providerType} provider error: ${errorMessage}`, error);
+    
     if (error instanceof Error) {
-      return error;
+      // 保留原始错误栈跟踪
+      throw error;
     }
-    return new Error(`Unknown ${this.config.providerType} provider error`);
+    
+    throw new Error(`${this.config.providerType} provider error: ${errorMessage}`);
   }
 
   /**
-   * Chat with the LLM
-   * @param message - Message to send
-   * @returns LLM response
+   * 聊天
+   * @param message 消息
+   * @returns LLM响应
    */
   async chat(message: string): Promise<string> {
     try {
-      // 导入generateText函数
-      const { generateText } = await import('ai');
-      
-      // 确保提供商模块已加载完成
-      if (this.config.providerType !== 'openai' && !this.providerFunctions[this.config.providerType]) {
-        await new Promise(resolve => setTimeout(resolve, 1000)); // 等待动态导入完成
-      }
-      
-      // @ts-ignore - Type compatibility issue between different versions of AI SDK
-      const model = this.getModelFunction();
-      
-      // 准备配置选项
-      const chatOptions: any = {
-        model,
-        prompt: message,
-        ...this.config.extraConfig?.generateOptions,
-      };
-      
-      // 如果有系统提示，添加到配置中
-      if (this.systemPrompt && !chatOptions.system) {
-        chatOptions.system = this.systemPrompt;
-      }
-      
-      const result = await generateText(chatOptions);
-      
-      return result.text;
+      // 使用generate方法实现chat功能
+      return await this.generate(message);
     } catch (error) {
       throw this.handleError(error);
     }
   }
 
   /**
-   * Set the system prompt
-   * @param prompt - System prompt to set
+   * 设置系统提示
+   * @param prompt 系统提示
    */
   setSystemPrompt(prompt: string): void {
     this.systemPrompt = prompt;
   }
 
   /**
-   * Get the current system prompt
-   * @returns Current system prompt
+   * 获取系统提示
+   * @returns 系统提示
    */
   getSystemPrompt(): string {
     return this.systemPrompt;
   }
 
   /**
-   * Get the name of the LLM provider
-   * @returns Provider name
+   * 获取提供商名称
+   * @returns 提供商名称
    */
   getName(): string {
     return this.config.providerType;
   }
 
   /**
-   * Get the model being used
-   * @returns Model name
+   * 获取模型名称
+   * @returns 模型名称
    */
   getModel(): string {
     return this.config.model || this.getDefaultModel();
