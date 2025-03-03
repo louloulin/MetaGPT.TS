@@ -1,29 +1,36 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { FixBug } from '../../src/actions/fix-bug';
-import { MockLLM } from '../mocks/mock-llm';
+import { createLLMProvider } from '../mocks/llm-provider';
 
 describe('FixBug', () => {
-  // Mock LLM that returns predefined responses for different prompts
-  let mockLLM: MockLLM;
+  // LLM provider for tests
+  let llmProvider: any;
   
   beforeEach(() => {
-    // Create a new mock LLM for each test
-    mockLLM = new MockLLM({
-      // Define responses for different types of nodes
-      responses: {
-        'Bug Analysis': 'The bug is caused by accessing a property on an undefined object.',
-        'Possible Causes': JSON.stringify([
+    // Create a new LLM provider with custom system prompt for each test
+    const systemPrompt = "You are a debugging expert. Respond with appropriate formats for each query type.";
+    llmProvider = createLLMProvider(systemPrompt);
+    
+    // Mock the chat method to return predefined responses
+    llmProvider.chat = vi.fn().mockImplementation(async (prompt: string) => {
+      if (prompt.includes('Bug Analysis')) {
+        return 'The bug is caused by accessing a property on an undefined object.';
+      } else if (prompt.includes('Possible Causes')) {
+        return JSON.stringify([
           'Missing null check before accessing properties',
           'API response not properly handled',
           'Race condition in data loading'
-        ]),
-        'Reproduction Steps': JSON.stringify([
+        ]);
+      } else if (prompt.includes('Reproduction Steps')) {
+        return JSON.stringify([
           '1. Load the application',
           '2. Navigate to user profile without waiting for data',
           '3. Observe error in console'
-        ]),
-        'Fix Strategy': 'Add null checks and implement proper loading states.',
-        'Code Changes': JSON.stringify([
+        ]);
+      } else if (prompt.includes('Fix Strategy')) {
+        return 'Add null checks and implement proper loading states.';
+      } else if (prompt.includes('Code Changes')) {
+        return JSON.stringify([
           {
             file: 'src/components/UserProfile.tsx',
             changes: [
@@ -34,8 +41,9 @@ describe('FixBug', () => {
               }
             ]
           }
-        ]),
-        'Test Cases': JSON.stringify([
+        ]);
+      } else if (prompt.includes('Test Cases')) {
+        return JSON.stringify([
           {
             description: 'User profile with null data',
             steps: [
@@ -44,10 +52,13 @@ describe('FixBug', () => {
             ],
             expectedResult: 'Should display "Guest" and not crash'
           }
-        ]),
-        'Prevention Strategy': 'Add TypeScript strict null checks and implement loading states.',
-        'Anything UNCLEAR': 'No unclear aspects at this time.'
+        ]);
+      } else if (prompt.includes('Prevention Strategy')) {
+        return 'Add TypeScript strict null checks and implement loading states.';
+      } else if (prompt.includes('Anything UNCLEAR')) {
+        return 'No unclear aspects at this time.';
       }
+      return '[]';
     });
   });
 
@@ -55,12 +66,12 @@ describe('FixBug', () => {
     const fixBug = new FixBug({
       name: 'FixBug',
       description: 'Analyzes and fixes bugs in code',
-      llm: mockLLM
+      llm: llmProvider
     });
     
     expect(fixBug).toBeInstanceOf(FixBug);
     expect(fixBug['name']).toBe('FixBug');
-    expect(fixBug['llm']).toBe(mockLLM);
+    expect(fixBug['llm']).toBe(llmProvider);
   });
 
   it('should initialize with bug details when provided', () => {
@@ -74,7 +85,7 @@ describe('FixBug', () => {
     const fixBug = new FixBug({
       name: 'FixBug',
       description: 'Analyzes and fixes bugs in code',
-      llm: mockLLM,
+      llm: llmProvider,
       bugDetails
     });
     
@@ -85,7 +96,7 @@ describe('FixBug', () => {
     const fixBug = new FixBug({
       name: 'FixBug',
       description: 'Analyzes and fixes bugs in code',
-      llm: mockLLM,
+      llm: llmProvider,
       bugDetails: {
         description: 'App crashes when accessing user profile',
         errorMessage: 'Cannot read property name of undefined',
@@ -131,7 +142,7 @@ describe('FixBug', () => {
     const fixBug = new FixBug({
       name: 'FixBug',
       description: 'Analyzes and fixes bugs in code',
-      llm: mockLLM,
+      llm: llmProvider,
       args: {
         message: {
           content: 'The application crashes when loading the user profile page.',
@@ -154,21 +165,19 @@ describe('FixBug', () => {
   });
 
   it('should handle errors during node execution', async () => {
-    // Create a mock LLM that will throw an error for a specific node
-    const errorMockLLM = new MockLLM({
-      responses: {},
-      generateFn: async (prompt: string) => {
-        if (prompt.includes('Code Changes')) {
-          throw new Error('Failed to generate code changes');
-        }
-        return '[]';
+    // Create an LLM provider that will throw an error for a specific node
+    const errorLLMProvider = createLLMProvider("Error simulation");
+    errorLLMProvider.chat = vi.fn().mockImplementation(async (prompt: string) => {
+      if (prompt.includes('Code Changes')) {
+        throw new Error('Failed to generate code changes');
       }
+      return '[]';
     });
     
     const fixBug = new FixBug({
       name: 'FixBug',
       description: 'Analyzes and fixes bugs in code',
-      llm: errorMockLLM,
+      llm: errorLLMProvider,
       bugDetails: {
         description: 'App crashes when accessing user profile'
       }
@@ -183,18 +192,21 @@ describe('FixBug', () => {
   });
 
   it('should handle parsing errors gracefully', async () => {
-    // Create a mock LLM that returns invalid JSON for a specific node
-    const invalidJsonMockLLM = new MockLLM({
-      responses: {
-        'Possible Causes': 'This is not valid JSON',
-        'Code Changes': 'Also not valid JSON',
+    // Create an LLM provider that returns invalid JSON for specific nodes
+    const invalidJsonLLMProvider = createLLMProvider("Invalid JSON simulation");
+    invalidJsonLLMProvider.chat = vi.fn().mockImplementation(async (prompt: string) => {
+      if (prompt.includes('Possible Causes')) {
+        return 'This is not valid JSON';
+      } else if (prompt.includes('Code Changes')) {
+        return 'Also not valid JSON';
       }
+      return '[]';
     });
     
     const fixBug = new FixBug({
       name: 'FixBug',
       description: 'Analyzes and fixes bugs in code',
-      llm: invalidJsonMockLLM,
+      llm: invalidJsonLLMProvider,
       bugDetails: {
         description: 'App crashes when accessing user profile'
       }

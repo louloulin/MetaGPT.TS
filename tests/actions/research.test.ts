@@ -5,16 +5,21 @@
 import { expect, describe, it, vi, beforeEach, afterEach } from 'vitest';
 import { Research, type ResearchResult, ReliabilityRating, ResearchTopicType, SourceType } from '../../src/actions/research';
 import type { ActionOutput } from '../../src/types/action';
-import { MockLLM } from '../mocks/mock-llm';
+import { createLLMProvider } from '../mocks/llm-provider';
 import { ArrayMemory } from '../../src/types/memory';
 
 describe('Research', () => {
-  let mockLLM: MockLLM;
+  let llmProvider: any;
 
   beforeEach(() => {
-    mockLLM = new MockLLM({
-      responses: {
-        'Recent advances in solar energy technology': JSON.stringify({
+    // Create an LLM provider with custom system prompt
+    const systemPrompt = "You are a research expert. Provide detailed, structured research results.";
+    llmProvider = createLLMProvider(systemPrompt);
+    
+    // Mock the chat method to return predefined responses
+    llmProvider.chat = vi.fn().mockImplementation(async (prompt: string) => {
+      if (prompt.includes('Recent advances in solar energy technology')) {
+        return JSON.stringify({
           query: "Recent advances in solar energy technology",
           topic_type: ResearchTopicType.TECHNICAL,
           objective: "Analyze recent developments and trends in solar energy technology",
@@ -87,9 +92,11 @@ describe('Research', () => {
             "Environmental lifecycle analysis of advanced solar materials",
             "Integration strategies for high solar penetration in existing grids"
           ]
-        }),
-        'invalid json test': 'This is not valid JSON',
-        'reliability validation': JSON.stringify({
+        });
+      } else if (prompt.includes('invalid json test')) {
+        return 'This is not valid JSON';
+      } else if (prompt.includes('reliability validation')) {
+        return JSON.stringify({
           query: "reliability validation",
           topic_type: ResearchTopicType.GENERAL,
           sources: [
@@ -108,9 +115,14 @@ describe('Research', () => {
           confidence_score: 0.5,
           limitations: ["Some sources have reliability below the requested minimum"],
           future_research_directions: []
-        })
+        });
       }
+      
+      return '{}';
     });
+    
+    // Also mock the generate method for completeness
+    llmProvider.generate = llmProvider.chat;
   });
 
   afterEach(() => {
@@ -120,7 +132,7 @@ describe('Research', () => {
   it('should initialize with correct properties', () => {
     const research = new Research({
       name: 'Research',
-      llm: mockLLM,
+      llm: llmProvider,
       memory: new ArrayMemory()
     });
 
@@ -131,7 +143,7 @@ describe('Research', () => {
   it('should perform research successfully', async () => {
     const research = new Research({
       name: 'Research',
-      llm: mockLLM,
+      llm: llmProvider,
       memory: new ArrayMemory(),
       args: {
         query: 'Recent advances in solar energy technology',
@@ -153,7 +165,7 @@ describe('Research', () => {
   it('should fail when no query is provided', async () => {
     const research = new Research({
       name: 'Research',
-      llm: mockLLM,
+      llm: llmProvider,
       memory: new ArrayMemory()
     });
 
@@ -165,7 +177,7 @@ describe('Research', () => {
   it('should validate research result structure', async () => {
     const research = new Research({
       name: 'Research',
-      llm: mockLLM,
+      llm: llmProvider,
       memory: new ArrayMemory(),
       args: {
         query: 'Recent advances in solar energy technology',
@@ -189,12 +201,12 @@ describe('Research', () => {
 
   it('should handle LLM errors gracefully', async () => {
     // Make LLM throw error
-    mockLLM.chat.mockRejectedValueOnce(new Error('LLM API error'));
-    mockLLM.generate.mockRejectedValueOnce(new Error('LLM API error'));
+    llmProvider.chat = vi.fn().mockRejectedValueOnce(new Error('LLM API error'));
+    llmProvider.generate = vi.fn().mockRejectedValueOnce(new Error('LLM API error'));
 
     const research = new Research({
       name: 'Research',
-      llm: mockLLM,
+      llm: llmProvider,
       memory: new ArrayMemory(),
       args: {
         query: 'Recent advances in solar energy technology',
@@ -210,7 +222,7 @@ describe('Research', () => {
   it('should apply source reliability validation', async () => {
     const research = new Research({
       name: 'Research',
-      llm: mockLLM,
+      llm: llmProvider,
       memory: new ArrayMemory(),
       args: {
         query: 'reliability validation',
@@ -230,7 +242,7 @@ describe('Research', () => {
   it('should check findings confidence and add warnings for low confidence', async () => {
     const research = new Research({
       name: 'Research',
-      llm: mockLLM,
+      llm: llmProvider,
       memory: new ArrayMemory(),
       args: {
         query: 'Recent advances in solar energy technology'

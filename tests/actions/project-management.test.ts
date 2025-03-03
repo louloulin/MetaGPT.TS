@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { ProjectManagement } from '../../src/actions/project-management';
-import { MockLLM } from '../mocks/mock-llm';
+import { createLLMProvider } from '../mocks/llm-provider';
 import { z } from 'zod';
 import { ArrayMemory } from '../../src/types/memory';
 
@@ -10,59 +10,67 @@ const createMockMemory = () => {
 };
 
 describe('ProjectManagement', () => {
-  // Mock LLM that returns predefined responses for different prompts
-  let mockLLM: MockLLM;
+  // LLM provider for tests
+  let llmProvider: any;
   
   beforeEach(() => {
-    // Create a new mock LLM for each test
-    mockLLM = new MockLLM({
-      // Define responses for different types of nodes
-      responses: {
-        'Required packages': JSON.stringify(['express@4.17.1', 'typescript@4.7.4']),
-        'Required Other language third-party packages': JSON.stringify([]),
-        'Logic Analysis': JSON.stringify([
+    // Create a new LLM provider with custom system prompt
+    const systemPrompt = "You are a project management expert. Provide structured responses for project planning.";
+    llmProvider = createLLMProvider(systemPrompt);
+    
+    // Mock the chat method to return predefined responses
+    llmProvider.chat = vi.fn().mockImplementation(async (prompt: string) => {
+      if (prompt.includes('Required packages')) {
+        return JSON.stringify(['express@4.17.1', 'typescript@4.7.4']);
+      } else if (prompt.includes('Required Other language third-party packages')) {
+        return JSON.stringify([]);
+      } else if (prompt.includes('Logic Analysis')) {
+        return JSON.stringify([
           ['app.ts', 'Contains App class and initialization logic'],
           ['server.ts', 'Contains Server class and HTTP server setup']
-        ]),
-        'Task list': JSON.stringify(['server.ts', 'app.ts']),
-        'Full API spec': JSON.stringify({
+        ]);
+      } else if (prompt.includes('Task list')) {
+        return JSON.stringify(['server.ts', 'app.ts']);
+      } else if (prompt.includes('Full API spec')) {
+        return JSON.stringify({
           openapi: '3.0.0',
           info: {
             title: 'Project API',
             version: '1.0.0'
           }
-        }),
-        'Shared Knowledge': JSON.stringify({
+        });
+      } else if (prompt.includes('Shared Knowledge')) {
+        return JSON.stringify({
           content: '`utils.ts` contains shared utility functions.'
-        }),
-        'Anything UNCLEAR': JSON.stringify({
+        });
+      } else if (prompt.includes('Anything UNCLEAR')) {
+        return JSON.stringify({
           content: 'No unclear aspects at this time.'
-        })
+        });
       }
+      
+      return '[]';
     });
-    
-    // Log the responses for debugging
-    console.log('Mock LLM responses:', mockLLM['responses']);
   });
 
   it('should initialize with correct properties', () => {
     const projectManagement = new ProjectManagement({
       name: 'ProjectManagement',
       description: 'Manages project tasks, dependencies, and resources',
-      llm: mockLLM,
+      llm: llmProvider,
       memory: createMockMemory()
     });
     
     expect(projectManagement).toBeInstanceOf(ProjectManagement);
     expect(projectManagement['name']).toBe('ProjectManagement');
-    expect(projectManagement['llm']).toBe(mockLLM);
+    expect(projectManagement['llm']).toBe(llmProvider);
   });
 
   it('should initialize with refined nodes when isRefined is true', () => {
     const projectManagement = new ProjectManagement({
       name: 'ProjectManagement',
       description: 'Manages project tasks, dependencies, and resources',
-      llm: mockLLM,
+      llm: llmProvider,
       isRefined: true,
       memory: createMockMemory()
     });
@@ -76,7 +84,7 @@ describe('ProjectManagement', () => {
     const projectManagement = new ProjectManagement({
       name: 'ProjectManagement',
       description: 'Manages project tasks, dependencies, and resources',
-      llm: mockLLM,
+      llm: llmProvider,
       args: {
         context: 'Create a simple Express web server'
       },
@@ -108,36 +116,32 @@ describe('ProjectManagement', () => {
   });
 
   it('should handle errors during node execution', async () => {
-    // Create a mock LLM that will throw an error for a specific node
-    const errorMockLLM = new MockLLM({
-      responses: {
-        'Required packages': JSON.stringify(['express@4.17.1']),
-        'Required Other language third-party packages': JSON.stringify([]),
-        'Logic Analysis': JSON.stringify([]),
-        'Task list': 'error',  // This will cause an error
-        'Full API spec': JSON.stringify({}),
-        'Shared Knowledge': JSON.stringify({}),
-        'Anything UNCLEAR': JSON.stringify({})
-      },
-      generateFn: async (prompt: string): Promise<string> => {
-        if (prompt.includes('Task list')) {
-          throw new Error('Failed to generate task list');
-        }
-        // For other prompts, try to find a matching response
-        const responses = (errorMockLLM as MockLLM)['responses'];
-        for (const [key, response] of Object.entries(responses)) {
-          if (prompt.includes(key)) {
-            return response;
-          }
-        }
-        return '[]';
+    // Create an LLM provider that will throw an error for a specific node
+    const errorLLMProvider = createLLMProvider("Error simulation");
+    errorLLMProvider.chat = vi.fn().mockImplementation(async (prompt: string) => {
+      if (prompt.includes('Task list')) {
+        throw new Error('Failed to generate task list');
+      } else if (prompt.includes('Required packages')) {
+        return JSON.stringify(['express@4.17.1']);
+      } else if (prompt.includes('Required Other language third-party packages')) {
+        return JSON.stringify([]);
+      } else if (prompt.includes('Logic Analysis')) {
+        return JSON.stringify([]);
+      } else if (prompt.includes('Full API spec')) {
+        return JSON.stringify({});
+      } else if (prompt.includes('Shared Knowledge')) {
+        return JSON.stringify({});
+      } else if (prompt.includes('Anything UNCLEAR')) {
+        return JSON.stringify({});
       }
+      
+      return '[]';
     });
     
     const projectManagement = new ProjectManagement({
       name: 'ProjectManagement',
       description: 'Manages project tasks, dependencies, and resources',
-      llm: errorMockLLM,
+      llm: errorLLMProvider,
       args: {
         context: 'Create a simple Express web server'
       },
@@ -153,23 +157,32 @@ describe('ProjectManagement', () => {
   });
 
   it('should handle parsing errors gracefully', async () => {
-    // Create a mock LLM that returns invalid JSON for a specific node
-    const invalidJsonMockLLM = new MockLLM({
-      responses: {
-        'Required packages': 'This is not valid JSON',
-        'Required Other language third-party packages': JSON.stringify([]),
-        'Logic Analysis': 'Also not valid JSON',
-        'Task list': JSON.stringify([]),
-        'Full API spec': JSON.stringify({}),
-        'Shared Knowledge': JSON.stringify({}),
-        'Anything UNCLEAR': JSON.stringify({})
+    // Create an LLM provider that returns invalid JSON for specific nodes
+    const invalidJsonLLMProvider = createLLMProvider("Invalid JSON simulation");
+    invalidJsonLLMProvider.chat = vi.fn().mockImplementation(async (prompt: string) => {
+      if (prompt.includes('Required packages')) {
+        return 'This is not valid JSON';
+      } else if (prompt.includes('Required Other language third-party packages')) {
+        return JSON.stringify([]);
+      } else if (prompt.includes('Logic Analysis')) {
+        return 'Also not valid JSON';
+      } else if (prompt.includes('Task list')) {
+        return JSON.stringify([]);
+      } else if (prompt.includes('Full API spec')) {
+        return JSON.stringify({});
+      } else if (prompt.includes('Shared Knowledge')) {
+        return JSON.stringify({});
+      } else if (prompt.includes('Anything UNCLEAR')) {
+        return JSON.stringify({});
       }
+      
+      return '[]';
     });
     
     const projectManagement = new ProjectManagement({
       name: 'ProjectManagement',
       description: 'Manages project tasks, dependencies, and resources',
-      llm: invalidJsonMockLLM,
+      llm: invalidJsonLLMProvider,
       args: {
         context: 'Create a simple Express web server'
       },

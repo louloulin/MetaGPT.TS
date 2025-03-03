@@ -7,106 +7,46 @@ import { WriteReview, ReviewSeverity, ReviewCategory } from '../../src/actions/w
 import { UserMessage } from '../../src/types/message';
 import { ContextImpl, ContextFactory, GlobalContext } from '../../src/context/context';
 import { MemoryManagerImpl } from '../../src/memory/manager';
-
+import { ArrayMemory } from '../../src/memory/array';
+import { createLLMProvider } from '../mocks/llm-provider';
 describe('WriteReview', () => {
-  let mockLLM: any;
   let writeReview: WriteReview;
-  let memory: MemoryManagerImpl;
 
   beforeEach(async () => {
-    // Initialize context and memory
+    // Initialize global context
     GlobalContext.reset();
-    memory = new MemoryManagerImpl();
-    await memory.init();
     
-    // Store memory in global context
-    GlobalContext.getInstance().set('memory', memory);
+    // Create a new ArrayMemory instance
+    const memory = new ArrayMemory();
     
-    // Create mock LLM
-    mockLLM = {
-      chat: vi.fn(),
-      getName: () => 'MockLLM',
-      getModel: () => 'test-model',
-      generate: vi.fn(),
-    };
-
-    // Create WriteReview instance
+    // Create LLM provider with system prompt for code review
+    const systemPrompt = "You are a code review expert. Provide detailed, constructive feedback on code.";
+    const llmProvider = createLLMProvider(systemPrompt);
+    
+    // Create WriteReview instance with memory and LLM
     writeReview = new WriteReview({
-      name: 'WriteReview',
-      llm: mockLLM,
+      name: 'code-review',
+      description: 'Reviews code and provides feedback',
+      memory,
+      llm: llmProvider
     });
   });
 
   it('should create a WriteReview instance', () => {
     expect(writeReview).toBeInstanceOf(WriteReview);
-    expect(writeReview.name).toBe('WriteReview');
+    expect(writeReview.name).toBe('code-review');
   });
 
   it('should handle empty message list', async () => {
+    // Ensure memory is empty - it should be empty by default
+    
     const result = await writeReview.run();
     expect(result.status).toBe('failed');
     expect(result.content).toContain('No messages available');
   });
 
   it('should generate code review successfully', async () => {
-    // Mock successful LLM response
-    const mockReview = {
-      summary: 'The code needs improvement in several areas',
-      generalFeedback: 'The code is functional but has room for improvement in terms of organization and performance',
-      comments: [
-        {
-          severity: ReviewSeverity.CRITICAL,
-          category: ReviewCategory.SECURITY,
-          location: 'src/auth/login.ts:45',
-          comment: 'Password is being stored in plain text',
-          suggestion: 'Use bcrypt to hash passwords before storing'
-        },
-        {
-          severity: ReviewSeverity.MAJOR,
-          category: ReviewCategory.PERFORMANCE,
-          location: 'src/data/fetch.ts:23',
-          comment: 'Inefficient data fetching approach',
-          suggestion: 'Implement pagination and limit query results'
-        },
-        {
-          severity: ReviewSeverity.MINOR,
-          category: ReviewCategory.READABILITY,
-          location: 'src/components/User.tsx:12',
-          comment: 'Variable names are not descriptive',
-          suggestion: 'Use more meaningful variable names to improve readability'
-        },
-        {
-          severity: ReviewSeverity.POSITIVE,
-          category: ReviewCategory.ARCHITECTURE,
-          location: 'src/utils/helpers.ts',
-          comment: 'Well-organized utility functions with good separation of concerns',
-          suggestion: 'Consider adding JSDoc comments to improve documentation'
-        }
-      ],
-      bestPractices: [
-        'Use TypeScript interfaces for complex data structures',
-        'Implement proper error handling',
-        'Write unit tests for critical functionality'
-      ],
-      codeSmells: [
-        {
-          description: 'Duplicate code in multiple components',
-          location: 'src/components/Profile.tsx, src/components/Settings.tsx',
-          impact: 'Increases maintenance burden and risk of inconsistent updates',
-          recommendation: 'Extract common functionality into shared utility functions'
-        },
-        {
-          description: 'Large function with multiple responsibilities',
-          location: 'src/services/dataProcessor.ts:78',
-          impact: 'Reduces code readability and testability',
-          recommendation: 'Break down into smaller, focused functions'
-        }
-      ]
-    };
-
-    mockLLM.chat.mockResolvedValue(JSON.stringify(mockReview));
-
-    // Add a message to process
+    // Add a message to the action's memory
     writeReview.context.memory.add(new UserMessage('Review this codebase and provide feedback'));
 
     // Run review generation
@@ -128,11 +68,8 @@ describe('WriteReview', () => {
   });
 
   it('should handle LLM response parsing error', async () => {
-    // Mock LLM response with invalid JSON
-    mockLLM.chat.mockResolvedValue('Invalid JSON response');
-
-    // Add a message to process
-    writeReview.context.memory.add(new UserMessage('Review this code'));
+    // Add a message to the action's memory
+    writeReview.context.memory.add(new UserMessage('Review this code with Invalid JSON'));
 
     // Run review generation
     const result = await writeReview.run();
@@ -145,17 +82,8 @@ describe('WriteReview', () => {
   });
 
   it('should handle missing fields in LLM response', async () => {
-    // Mock LLM response with missing fields
-    const partialReview = {
-      summary: 'Partial code review',
-      generalFeedback: 'Limited feedback available'
-      // Other fields missing
-    };
-
-    mockLLM.chat.mockResolvedValue(JSON.stringify(partialReview));
-
-    // Add a message to process
-    writeReview.context.memory.add(new UserMessage('Review this code'));
+    // Add a message to the action's memory
+    writeReview.context.memory.add(new UserMessage('Review this code with Partial review'));
 
     // Run review generation
     const result = await writeReview.run();
@@ -168,44 +96,7 @@ describe('WriteReview', () => {
   });
 
   it('should group comments by severity correctly', async () => {
-    // Mock review with comments of different severities
-    const mockReview = {
-      summary: 'Mixed severity issues',
-      generalFeedback: 'Various issues of different priorities',
-      comments: [
-        {
-          severity: ReviewSeverity.CRITICAL,
-          category: ReviewCategory.SECURITY,
-          comment: 'Critical security issue'
-        },
-        {
-          severity: ReviewSeverity.CRITICAL,
-          category: ReviewCategory.PERFORMANCE,
-          comment: 'Critical performance issue'
-        },
-        {
-          severity: ReviewSeverity.MAJOR,
-          category: ReviewCategory.FUNCTIONALITY,
-          comment: 'Major functionality issue'
-        },
-        {
-          severity: ReviewSeverity.MINOR,
-          category: ReviewCategory.STYLE,
-          comment: 'Minor style issue'
-        },
-        {
-          severity: ReviewSeverity.POSITIVE,
-          category: ReviewCategory.READABILITY,
-          comment: 'Good readability'
-        }
-      ],
-      bestPractices: ['Best practice 1'],
-      codeSmells: []
-    };
-
-    mockLLM.chat.mockResolvedValue(JSON.stringify(mockReview));
-
-    // Add a message to process
+    // Add a message to the action's memory
     writeReview.context.memory.add(new UserMessage('Review code with various severities'));
 
     // Run review generation
@@ -223,4 +114,97 @@ describe('WriteReview', () => {
     expect(result.content).toContain('## Positive Feedback');
     expect(result.content).toContain('Good readability');
   });
-}); 
+});
+
+// Helper functions to provide consistent mock data
+function getMockSuccessfulReview() {
+  return {
+    summary: 'The code needs improvement in several areas',
+    generalFeedback: 'The code is functional but has room for improvement in terms of organization and performance',
+    comments: [
+      {
+        severity: ReviewSeverity.CRITICAL,
+        category: ReviewCategory.SECURITY,
+        location: 'src/auth/login.ts:45',
+        comment: 'Password is being stored in plain text',
+        suggestion: 'Use bcrypt to hash passwords before storing'
+      },
+      {
+        severity: ReviewSeverity.MAJOR,
+        category: ReviewCategory.PERFORMANCE,
+        location: 'src/data/fetch.ts:23',
+        comment: 'Inefficient data fetching approach',
+        suggestion: 'Implement pagination and limit query results'
+      },
+      {
+        severity: ReviewSeverity.MINOR,
+        category: ReviewCategory.READABILITY,
+        location: 'src/components/User.tsx:12',
+        comment: 'Variable names are not descriptive',
+        suggestion: 'Use more meaningful variable names to improve readability'
+      },
+      {
+        severity: ReviewSeverity.POSITIVE,
+        category: ReviewCategory.ARCHITECTURE,
+        location: 'src/utils/helpers.ts',
+        comment: 'Well-organized utility functions with good separation of concerns',
+        suggestion: 'Consider adding JSDoc comments to improve documentation'
+      }
+    ],
+    bestPractices: [
+      'Use TypeScript interfaces for complex data structures',
+      'Implement proper error handling',
+      'Write unit tests for critical functionality'
+    ],
+    codeSmells: [
+      {
+        description: 'Duplicate code in multiple components',
+        location: 'src/components/Profile.tsx, src/components/Settings.tsx',
+        impact: 'Increases maintenance burden and risk of inconsistent updates',
+        recommendation: 'Extract common functionality into shared utility functions'
+      },
+      {
+        description: 'Large function with multiple responsibilities',
+        location: 'src/services/dataProcessor.ts:78',
+        impact: 'Reduces code readability and testability',
+        recommendation: 'Break down into smaller, focused functions'
+      }
+    ]
+  };
+}
+
+function getMockSeverityGroupedReview() {
+  return {
+    summary: 'Mixed severity issues',
+    generalFeedback: 'Various issues of different priorities',
+    comments: [
+      {
+        severity: ReviewSeverity.CRITICAL,
+        category: ReviewCategory.SECURITY,
+        comment: 'Critical security issue'
+      },
+      {
+        severity: ReviewSeverity.CRITICAL,
+        category: ReviewCategory.PERFORMANCE,
+        comment: 'Critical performance issue'
+      },
+      {
+        severity: ReviewSeverity.MAJOR,
+        category: ReviewCategory.FUNCTIONALITY,
+        comment: 'Major functionality issue'
+      },
+      {
+        severity: ReviewSeverity.MINOR,
+        category: ReviewCategory.STYLE,
+        comment: 'Minor style issue'
+      },
+      {
+        severity: ReviewSeverity.POSITIVE,
+        category: ReviewCategory.READABILITY,
+        comment: 'Good readability'
+      }
+    ],
+    bestPractices: ['Best practice 1'],
+    codeSmells: []
+  };
+} 

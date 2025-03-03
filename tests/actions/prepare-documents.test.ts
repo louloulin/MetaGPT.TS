@@ -4,7 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PrepareDocuments, REQUIREMENT_FILENAME } from '../../src/actions/prepare-documents';
-import { MockLLM } from '../mocks/mock-llm';
+import { createLLMProvider } from '../mocks/llm-provider';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
@@ -13,17 +13,19 @@ import { ConfigManager } from '../../src/config/config';
 describe('PrepareDocuments', () => {
   // Create a temporary test directory
   const testDir = path.join(os.tmpdir(), `metagpt-test-${Date.now()}`);
-  let mockLLM: MockLLM;
+  let llmProvider: any;
 
   beforeEach(async () => {
     // Create test directory
     await fs.mkdir(testDir, { recursive: true });
     
-    // Create a new mock LLM for each test
-    mockLLM = new MockLLM({
-      responses: {
-        default: 'Mock LLM response',
-      }
+    // Create a new LLM provider with custom system prompt
+    const systemPrompt = "You are a document preparation expert.";
+    llmProvider = createLLMProvider(systemPrompt);
+    
+    // Mock the chat method to return predefined responses
+    llmProvider.chat = vi.fn().mockImplementation(async (prompt: string) => {
+      return 'Mock LLM response';
     });
     
     // Mock ConfigManager.getInstance
@@ -54,13 +56,13 @@ describe('PrepareDocuments', () => {
     const prepareDocuments = new PrepareDocuments({
       name: 'PrepareDocuments',
       description: 'Initialize project folder',
-      llm: mockLLM,
+      llm: llmProvider,
       projectPath: path.join(testDir, 'custom-project')
     });
     
     expect(prepareDocuments).toBeInstanceOf(PrepareDocuments);
     expect(prepareDocuments['name']).toBe('PrepareDocuments');
-    expect(prepareDocuments['llm']).toBe(mockLLM);
+    expect(prepareDocuments['llm']).toBe(llmProvider);
     expect(prepareDocuments['config'].projectPath).toBe(path.join(testDir, 'custom-project'));
   });
 
@@ -69,7 +71,7 @@ describe('PrepareDocuments', () => {
     const prepareDocuments = new PrepareDocuments({
       name: 'PrepareDocuments',
       description: 'Initialize project folder',
-      llm: mockLLM,
+      llm: llmProvider,
       projectPath: projectPath,
       args: {
         content: 'Test requirements content'
@@ -113,7 +115,7 @@ describe('PrepareDocuments', () => {
     const prepareDocuments = new PrepareDocuments({
       name: 'PrepareDocuments',
       description: 'Initialize project folder',
-      llm: mockLLM,
+      llm: llmProvider,
       projectPath: projectPath,
       incremental: true,
       args: {
@@ -149,7 +151,7 @@ describe('PrepareDocuments', () => {
     const prepareDocuments = new PrepareDocuments({
       name: 'PrepareDocuments',
       description: 'Initialize project folder',
-      llm: mockLLM,
+      llm: llmProvider,
       projectPath: projectPath,
       incremental: false, // Explicitly set to false
       args: {
@@ -177,7 +179,7 @@ describe('PrepareDocuments', () => {
     const prepareDocuments = new PrepareDocuments({
       name: 'PrepareDocuments',
       description: 'Initialize project folder',
-      llm: mockLLM,
+      llm: llmProvider,
       args: {
         content: 'Default project requirements'
       }
@@ -202,7 +204,7 @@ describe('PrepareDocuments', () => {
     const prepareDocuments = new PrepareDocuments({
       name: 'PrepareDocuments',
       description: 'Initialize project folder',
-      llm: mockLLM,
+      llm: llmProvider,
       projectPath: projectPath,
       args: {
         content: '' // Empty content
@@ -233,7 +235,7 @@ describe('PrepareDocuments', () => {
     const prepareDocuments = new PrepareDocuments({
       name: 'PrepareDocuments',
       description: 'Initialize project folder',
-      llm: mockLLM,
+      llm: llmProvider,
       projectPath: '/invalid/path', // This should trigger the mocked error
       args: {
         content: 'Test requirements'
