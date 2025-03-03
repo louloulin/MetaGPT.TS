@@ -249,4 +249,35 @@ export abstract class BaseAction implements Action {
   toString(): string {
     return `${this.name}(${this.desc})`;
   }
+
+  /**
+   * Helper method to get messages from memory
+   * @returns Array of messages or empty array if no messages available
+   */
+  protected async getMessages(): Promise<any[]> {
+    try {
+      if (!this.context?.memory) {
+        logger.warn(`[${this.name}] No memory available in context`);
+        return [];
+      }
+      
+      // Check if getMessages method exists (new API)
+      if (typeof this.context.memory.getMessages === 'function') {
+        const messages = await this.context.memory.getMessages();
+        return messages || [];
+      }
+      
+      // Fallback to get method (old API)
+      if (typeof this.context.memory.get === 'function') {
+        const messages = this.context.memory.get();
+        return messages || [];
+      }
+      
+      logger.warn(`[${this.name}] Memory does not have get or getMessages method`);
+      return [];
+    } catch (error) {
+      logger.error(`[${this.name}] Error getting messages:`, error);
+      return [];
+    }
+  }
 } 

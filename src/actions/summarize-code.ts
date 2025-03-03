@@ -159,8 +159,8 @@ export class SummarizeCode extends BaseAction {
   public async run(): Promise<ActionOutput> {
     try {
       // Check if there are any messages
-      const messages = this.context?.memory?.get();
-      if (!messages || messages.length === 0) {
+      const messages = await this.getMessages();
+      if (messages.length === 0) {
         return {
           status: 'failed',
           content: 'No messages available for code analysis'

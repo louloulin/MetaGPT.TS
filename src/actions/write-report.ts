@@ -99,7 +99,8 @@ export class WriteReport extends BaseAction {
   public async run(): Promise<ActionOutput> {
     try {
       // Check if there are any messages
-      const messages = this.context?.memory?.get();
+      const messages = await this.context.memory.getMessages();
+      console.log('Messages from memory:', messages);
       if (!messages || messages.length === 0) {
         return {
           status: 'failed',
@@ -109,23 +110,30 @@ export class WriteReport extends BaseAction {
 
       // Generate report based on messages
       const prompt = this.preparePrompt(messages);
+      console.log('Prepared prompt:', prompt);
       let report: Report;
       
       try {
+        console.log('LLM instance:', this.llm);
         report = await this.generateReport(prompt);
+        console.log('Generated report:', report);
       } catch (error) {
+        console.error('Error generating report:', error);
         logger.error('Error generating report:', error);
         report = this.createFallbackReport(prompt);
+        console.log('Fallback report:', report);
       }
 
       // Format the report
       const formattedReport = this.formatReport(report);
+      console.log('Formatted report:', formattedReport);
 
       return {
         status: 'completed',
         content: formattedReport
       };
     } catch (error) {
+      console.error('Error in WriteReport:', error);
       logger.error('Error in WriteReport:', error);
       return {
         status: 'failed',
