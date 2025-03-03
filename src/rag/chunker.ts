@@ -22,6 +22,8 @@ export enum ChunkingStrategy {
   PARAGRAPH = 'paragraph',
   /** Split by fixed size */
   FIXED = 'fixed',
+  /** Split by semantic units */
+  SEMANTIC = 'semantic',
 }
 
 /**
@@ -29,13 +31,17 @@ export enum ChunkingStrategy {
  */
 export const ChunkerConfigSchema = z.object({
   /** Strategy for chunking */
-  strategy: z.nativeEnum(ChunkingStrategy).default(ChunkingStrategy.TOKEN),
+  strategy: z.nativeEnum(ChunkingStrategy).default(ChunkingStrategy.PARAGRAPH),
   /** Maximum size of each chunk */
   maxSize: z.number().default(1000),
   /** Overlap between chunks */
   overlap: z.number().default(200),
   /** Whether to include metadata in chunks */
   includeMetadata: z.boolean().default(true),
+  /** Whether to respect semantic boundaries when chunking */
+  respectSemanticBoundaries: z.boolean().default(true),
+  /** Minimum size of semantic chunks */
+  minSemanticChunkSize: z.number().default(200),
 });
 
 export type ChunkerConfig = z.infer<typeof ChunkerConfigSchema>;
@@ -89,8 +95,10 @@ export class BaseChunker implements Chunker {
         return this.chunkByParagraph(text);
       case ChunkingStrategy.FIXED:
         return this.chunkByFixed(text);
+      case ChunkingStrategy.SEMANTIC:
+        return this.chunkBySemantic(text);
       default:
-        return this.chunkByToken(text);
+        return this.chunkByParagraph(text);
     }
   }
   
@@ -203,6 +211,153 @@ export class BaseChunker implements Chunker {
       chunks.push(currentChunk);
     }
     
+    return chunks;
+  }
+  
+  /**
+   * Chunk by semantic units (headings, paragraphs, lists, etc.)
+   * @param text Document text
+   * @returns Array of chunks
+   */
+  protected chunkBySemantic(text: string): string[] {
+    const chunks: string[] = [];
+    
+    // Step 1: Detect document structure using regex patterns
+    // - Headings (markdown/html style)
+    // - Lists (bullet points, numbered)
+    // - Code blocks
+    // - Paragraphs
+    
+    // Define patterns for semantic boundaries
+    const headingPattern = /(?:^|\n)(?:#{1,6} .+|\<h[1-6]\>.+\<\/h[1-6]\>)/g;
+    const listItemPattern = /(?:^|\n)(?:[\*\-\+]|\d+\.) .+/g;
+    const codeBlockPattern = /(?:^|\n)```[\s\S]*?```/g;
+    const paragraphPattern = /(?:^|\n)\s*\n(.+?)(?:\n\s*\n|$)/g;
+    
+    // Identify semantic sections
+    const sections: { type: string; start: number; end: number; content: string }[] = [];
+    
+    // Find headings
+    let match;
+    while ((match = headingPattern.exec(text)) !== null) {
+      const nextHeadingPos = text.indexOf('\n', match.index + match[0].length);
+      const end = nextHeadingPos !== -1 ? nextHeadingPos : text.length;
+      
+      sections.push({
+        type: 'heading',
+        start: match.index,
+        end: end,
+        content: text.substring(match.index, end)
+      });
+    }
+    
+    // Find list items and group them
+    const listMatches: RegExpExecArray[] = [];
+    while ((match = listItemPattern.exec(text)) !== null) {
+      listMatches.push(match);
+    }
+    
+    // Group consecutive list items
+    for (let i = 0; i < listMatches.length; i++) {
+      const start = listMatches[i].index;
+      let end = start + listMatches[i][0].length;
+      
+      // Check if next match is a consecutive list item
+      while (i + 1 < listMatches.length && 
+            listMatches[i + 1].index <= end + 2) { // Allow for newlines
+        end = listMatches[i + 1].index + listMatches[i + 1][0].length;
+        i++;
+      }
+      
+      sections.push({
+        type: 'list',
+        start: start,
+        end: end,
+        content: text.substring(start, end)
+      });
+    }
+    
+    // Find code blocks
+    while ((match = codeBlockPattern.exec(text)) !== null) {
+      sections.push({
+        type: 'code',
+        start: match.index,
+        end: match.index + match[0].length,
+        content: match[0]
+      });
+    }
+    
+    // Find paragraphs
+    while ((match = paragraphPattern.exec(text)) !== null) {
+      // Skip if this paragraph overlaps with any section we've already found
+      const start = match.index;
+      const end = start + match[0].length;
+      
+      const overlaps = sections.some(section => 
+        (start >= section.start && start < section.end) ||
+        (end > section.start && end <= section.end)
+      );
+      
+      if (!overlaps) {
+        sections.push({
+          type: 'paragraph',
+          start: start,
+          end: end,
+          content: match[0]
+        });
+      }
+    }
+    
+    // Sort sections by their position in the document
+    sections.sort((a, b) => a.start - b.start);
+    
+    // Step 2: Group sections into chunks while respecting semantic boundaries
+    let currentChunk = '';
+    let lastSectionEnd = 0;
+    
+    for (const section of sections) {
+      // If there's a gap, include the text in between
+      if (section.start > lastSectionEnd) {
+        const gap = text.substring(lastSectionEnd, section.start);
+        if (gap.trim().length > 0) {
+          currentChunk += gap;
+        }
+      }
+      
+      // If adding this section would exceed the max size, finish the current chunk
+      if (currentChunk.length + section.content.length > this.config.maxSize && 
+          currentChunk.length >= this.config.minSemanticChunkSize) {
+        // Save current chunk
+        chunks.push(currentChunk);
+        
+        // Start new chunk with overlap from end of previous chunk if needed
+        if (this.config.overlap > 0 && this.config.overlap < currentChunk.length) {
+          const overlapText = currentChunk.substring(currentChunk.length - this.config.overlap);
+          currentChunk = overlapText;
+        } else {
+          currentChunk = '';
+        }
+      }
+      
+      // Add the section to the current chunk
+      currentChunk += section.content;
+      lastSectionEnd = section.end;
+    }
+    
+    // Add any remaining text
+    if (lastSectionEnd < text.length) {
+      const remainingText = text.substring(lastSectionEnd);
+      if (remainingText.trim().length > 0) {
+        currentChunk += remainingText;
+      }
+    }
+    
+    // Add the final chunk if not empty
+    if (currentChunk.length > 0) {
+      chunks.push(currentChunk);
+    }
+    
+    // If no chunks were created (perhaps the document was empty), return an empty array
     return chunks;
   }
   
