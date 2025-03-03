@@ -92,6 +92,7 @@ export class WriteRequirements extends BaseAction {
       // Check if there are any messages
       const messages = this.context?.memory?.get();
       if (!messages || messages.length === 0) {
+        logger.warn('No messages available for requirements generation');
         return {
           status: 'failed',
           content: 'No messages available for requirements generation'
@@ -126,6 +127,12 @@ export class WriteRequirements extends BaseAction {
   }
 
   private preparePrompt(messages: any[]): string {
+    // Ensure we have a messages array to work with
+    if (!Array.isArray(messages)) {
+      logger.warn('Messages is not an array, using empty array instead');
+      messages = [];
+    }
+    
     const messageContent = messages.map(m => m.content).join('\n');
     return `Generate requirements document for the following project information:\n\n${messageContent}`;
   }

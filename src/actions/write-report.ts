@@ -145,21 +145,53 @@ export class WriteReport extends BaseAction {
       throw new Error('LLM not initialized');
     }
 
-    const response = await this.llm.chat(prompt);
-    const report = JSON.parse(response);
+    try {
+      const response = await this.llm.chat(prompt);
+      
+      // Try to parse the response as JSON
+      let report: Partial<Report>;
+      try {
+        report = JSON.parse(response);
+      } catch (e) {
+        logger.warn(`Failed to parse LLM response as JSON: ${e}`);
+        // Fall back to treating the response as plain text and create a simple report
+        return {
+          title: `Report: ${new Date().toISOString()}`,
+          type: this.args.report_type || ReportType.PROJECT_STATUS,
+          format: this.args.format || ReportFormat.DETAILED,
+          executive_summary: `Generated based on prompt: ${prompt.substring(0, 100)}...`,
+          date: new Date().toISOString(),
+          author: this.args.author || 'System Generated',
+          sections: [{
+            title: 'Content',
+            content: response || 'No content generated',
+          }],
+          conclusions: ['Report was generated as plain text as structured data was not available'],
+          recommendations: ['Consider refining the prompt for more structured output'],
+          metrics: []
+        };
+      }
 
-    return {
-      title: report.title || 'Generated Report',
-      type: report.type || this.args.report_type,
-      format: report.format || this.args.format,
-      executive_summary: report.executive_summary || 'No summary provided',
-      date: report.date || new Date().toISOString(),
-      author: report.author || this.args.author || 'System Generated',
-      sections: report.sections || [],
-      conclusions: report.conclusions || [],
-      recommendations: report.recommendations || [],
-      metrics: report.metrics || []
-    };
+      // If we get here, we have a valid JSON object, but it might be missing fields
+      return {
+        title: report.title || 'Generated Report',
+        type: report.type || this.args.report_type || ReportType.PROJECT_STATUS,
+        format: report.format || this.args.format || ReportFormat.DETAILED,
+        executive_summary: report.executive_summary || 'No summary provided',
+        date: report.date || new Date().toISOString(),
+        author: report.author || this.args.author || 'System Generated',
+        sections: report.sections || [{
+          title: 'Overview',
+          content: 'Limited information available from generated report',
+        }],
+        conclusions: report.conclusions || [],
+        recommendations: report.recommendations || [],
+        metrics: report.metrics || []
+      };
+    } catch (error) {
+      logger.error('Error generating report:', error);
+      throw error;
+    }
   }
 
   private createFallbackReport(prompt: string): Report {
