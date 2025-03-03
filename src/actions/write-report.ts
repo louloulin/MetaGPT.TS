@@ -108,6 +108,15 @@ export class WriteReport extends BaseAction {
         };
       }
 
+      // Check if LLM is initialized
+      if (!this.llm) {
+        console.error('LLM not initialized');
+        return {
+          status: 'failed',
+          content: 'LLM not initialized for report generation'
+        };
+      }
+
       // Generate report based on messages
       const prompt = this.preparePrompt(messages);
       console.log('Prepared prompt:', prompt);
@@ -155,12 +164,15 @@ export class WriteReport extends BaseAction {
 
     try {
       const response = await this.llm.chat(prompt);
+      console.log('LLM response:', response);
       
       // Try to parse the response as JSON
       let report: Partial<Report>;
       try {
         report = JSON.parse(response);
+        console.log('Parsed report:', report);
       } catch (e) {
+        console.warn(`Failed to parse LLM response as JSON: ${e}`);
         logger.warn(`Failed to parse LLM response as JSON: ${e}`);
         // Fall back to treating the response as plain text and create a simple report
         return {
@@ -197,6 +209,7 @@ export class WriteReport extends BaseAction {
         metrics: report.metrics || []
       };
     } catch (error) {
+      console.error('Error generating report:', error);
       logger.error('Error generating report:', error);
       throw error;
     }
