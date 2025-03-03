@@ -82,8 +82,8 @@ Provide your analysis in a structured JSON format matching the PromptAnalysis in
   }
 
   public async run(): Promise<ActionOutput> {
-    const messages = this.context.memory.getMessages();
-    if (messages.length === 0) {
+    const messages = await this.context.memory.getMessages();
+    if (!messages || messages.length === 0) {
       return {
         status: 'failed',
         content: 'No messages available for analysis'
