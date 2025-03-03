@@ -30,6 +30,9 @@ export * from './tools/file-system';
 export * from './rag/base-rag';
 export * from './rag/document-qa';
 
+// 推理策略实现
+export * from './strategy';
+
 // 提供商实现
 export * from './provider/vercel-llm';
 
