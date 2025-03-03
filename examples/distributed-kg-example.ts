@@ -9,10 +9,6 @@ async function main() {
   const node1 = new KnowledgeGraphManager();
   const node2 = new KnowledgeGraphManager();
 
-  // Start both nodes
-  await node1.start();
-  await node2.start();
-
   // Add some nodes to node1
   await node1.addNode({
     id: 'person1',
@@ -62,8 +58,8 @@ async function main() {
   // Add relationships
   await node1.addEdge({
     id: 'works_at_1',
-    source: 'person1',
-    target: 'company1',
+    sourceId: 'person1',
+    targetId: 'company1',
     type: 'WORKS_AT',
     properties: {
       role: 'Software Engineer',
@@ -73,8 +69,8 @@ async function main() {
 
   await node1.addEdge({
     id: 'works_on_1',
-    source: 'person1',
-    target: 'project1',
+    sourceId: 'person1',
+    targetId: 'project1',
     type: 'WORKS_ON',
     properties: {
       role: 'Lead Developer',
@@ -84,8 +80,8 @@ async function main() {
 
   await node1.addEdge({
     id: 'knows_1',
-    source: 'person1',
-    target: 'person2',
+    sourceId: 'person1',
+    targetId: 'person2',
     type: 'KNOWS',
     properties: {
       since: '2021-03-15',
@@ -114,9 +110,7 @@ async function main() {
   console.log('Person1 connections:', node1.getConnectedNodes('person1'));
   console.log('Company1 connections:', node2.getConnectedNodes('company1'));
 
-  // Stop both nodes
-  await node1.stop();
-  await node2.stop();
+  // 示例结束
 }
 
 main().catch(console.error); 
