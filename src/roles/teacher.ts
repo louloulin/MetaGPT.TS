@@ -36,6 +36,19 @@ export interface TeacherConfig {
 }
 
 /**
+ * Stream callback function type
+ */
+export type TeacherStreamCallback = (chunk: string, section: string) => void;
+
+/**
+ * Run options interface
+ */
+export interface TeacherRunOptions {
+  streaming?: boolean;
+  streamCallback?: TeacherStreamCallback;
+}
+
+/**
  * Teacher role implementation
  */
 export class Teacher extends BaseRole {
@@ -87,6 +100,197 @@ export class Teacher extends BaseRole {
     ]);
     
     logger.info(`[${this.name}] Initialization complete`);
+  }
+
+  /**
+   * Main entry point for Teacher role - processes a message and returns a response
+   * Supports both streaming and regular modes
+   * @param message Message to process
+   * @param options Run options including streaming configuration
+   * @returns Processed message response
+   */
+  async run(message: Message, options?: TeacherRunOptions): Promise<Message> {
+    logger.info(`[${this.name}] Processing message using ${options?.streaming ? 'streaming' : 'regular'} mode`);
+    
+    try {
+      // Add the message to memory
+      this.context.memory.add(message);
+      
+      // Process content to determine the appropriate response type
+      const content = message.content.toLowerCase();
+      let responseContent = '';
+      let responseSection = '';
+      
+      // Determine which type of educational content to generate
+      if (content.includes('lesson') || content.includes('plan') || content.includes('teach')) {
+        logger.info(`[${this.name}] Creating lesson plan for topic: ${message.content}`);
+        responseSection = 'Lesson Plan';
+        
+        if (options?.streaming && this.llm.chatStream) {
+          // Use streaming for lesson plan creation
+          responseContent = await this.createLessonPlanStreaming(message.content, options.streamCallback);
+        } else {
+          // Use regular method
+          const result = await this.createLessonPlan(message.content);
+          responseContent = result.content;
+        }
+      } 
+      else if (content.includes('explain') || content.includes('what is') || content.includes('how to')) {
+        logger.info(`[${this.name}] Explaining concept: ${message.content}`);
+        responseSection = 'Concept Explanation';
+        
+        // Get explain concept action
+        const explainAction = this.actions.find(action => action instanceof ExplainConcept) as ExplainConcept;
+        
+        if (options?.streaming && this.llm.chatStream) {
+          // Use streaming for explanation
+          const prompt = `Please explain the following concept clearly and concisely: ${message.content}`;
+          responseContent = await this.streamResponse(prompt, responseSection, options.streamCallback);
+        } else {
+          // Use regular method
+          const result = await explainAction.run({ concept: message.content });
+          responseContent = result.content;
+        }
+      }
+      else if (content.includes('quiz') || content.includes('test') || content.includes('assess')) {
+        logger.info(`[${this.name}] Generating quiz for topic: ${message.content}`);
+        responseSection = 'Assessment';
+        
+        if (options?.streaming && this.llm.chatStream) {
+          // Use streaming for quiz generation
+          responseContent = await this.generateQuizStreaming(message.content, options.streamCallback);
+        } else {
+          // Use regular method
+          const result = await this.generateQuiz(message.content);
+          responseContent = result.content;
+        }
+      }
+      else if (content.includes('feedback') || content.includes('evaluate')) {
+        logger.info(`[${this.name}] Providing feedback on: ${message.content}`);
+        responseSection = 'Feedback';
+        
+        // For feedback, fallback to regular method as it typically requires structured input
+        // Extract question and answer from content if possible
+        const parts = message.content.split('\n');
+        let question = '';
+        let answer = '';
+        
+        if (parts.length >= 2) {
+          question = parts[0];
+          answer = parts.slice(1).join('\n');
+        } else {
+          question = message.content;
+          answer = "No specific answer provided";
+        }
+        
+        const result = await this.evaluateAnswer(question, answer);
+        responseContent = result.content;
+      }
+      else {
+        // Default to creating a lesson plan for any other type of input
+        logger.info(`[${this.name}] Creating default lesson plan for topic: ${message.content}`);
+        responseSection = 'Lesson Plan';
+        
+        if (options?.streaming && this.llm.chatStream) {
+          // Use streaming for lesson plan creation
+          responseContent = await this.createLessonPlanStreaming(message.content, options.streamCallback);
+        } else {
+          // Use regular method
+          const result = await this.createLessonPlan(message.content);
+          responseContent = result.content;
+        }
+      }
+      
+      // Create response message
+      const response = {
+        role: 'assistant',
+        content: responseContent,
+        id: Date.now().toString(),
+        causedBy: this.name,
+        sentFrom: this.name,
+        sendTo: new Set(['*']),
+        timestamp: new Date().toISOString(),
+        instructContent: null
+      };
+      
+      // Add response to memory
+      this.context.memory.add(response);
+      
+      return response;
+    } catch (error) {
+      logger.error(`[${this.name}] Error processing message:`, error);
+      return {
+        role: 'assistant',
+        content: `Error processing your request: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        id: Date.now().toString(),
+        causedBy: this.name,
+        sentFrom: this.name,
+        sendTo: new Set(['*']),
+        timestamp: new Date().toISOString(),
+        instructContent: null
+      };
+    }
+  }
+
+  /**
+   * Stream a response for a given prompt
+   * @param prompt The prompt to send to the LLM
+   * @param section Current section being generated
+   * @param callback Optional callback function for streaming chunks
+   * @returns The complete response
+   */
+  private async streamResponse(prompt: string, section: string, callback?: TeacherStreamCallback): Promise<string> {
+    if (!this.llm.chatStream) {
+      logger.warn(`[${this.name}] Streaming not supported by LLM provider, falling back to regular chat`);
+      return await this.llm.chat(prompt);
+    }
+    
+    logger.info(`[${this.name}] Streaming response for section: ${section}`);
+    let fullResponse = '';
+    
+    try {
+      for await (const chunk of this.llm.chatStream(prompt)) {
+        fullResponse += chunk;
+        
+        // Call the callback if provided
+        if (callback) {
+          callback(chunk, section);
+        }
+      }
+      
+      return fullResponse;
+    } catch (error) {
+      logger.error(`[${this.name}] Error in streaming response:`, error);
+      // Fallback to regular chat
+      logger.info(`[${this.name}] Falling back to regular chat`);
+      return await this.llm.chat(prompt);
+    }
+  }
+
+  /**
+   * Stream a lesson plan for a given topic
+   * @param topic The lesson topic
+   * @param callback Optional callback function for streaming chunks
+   * @returns The complete lesson plan
+   */
+  private async createLessonPlanStreaming(topic: string, callback?: TeacherStreamCallback): Promise<string> {
+    const section = 'Lesson Plan';
+    const prompt = `Create a detailed lesson plan for teaching "${topic}" using a ${this.teachingStyle} approach. Include learning objectives, activities, assessment methods, and timing for each section.`;
+    
+    return await this.streamResponse(prompt, section, callback);
+  }
+
+  /**
+   * Stream a quiz for a given topic
+   * @param topic The quiz topic
+   * @param callback Optional callback function for streaming chunks
+   * @returns The complete quiz
+   */
+  private async generateQuizStreaming(topic: string, callback?: TeacherStreamCallback): Promise<string> {
+    const section = 'Quiz';
+    const prompt = `Create a comprehensive quiz or assessment on the topic "${topic}". Include a variety of question types (multiple choice, short answer, etc.) along with an answer key.`;
+    
+    return await this.streamResponse(prompt, section, callback);
   }
 
   /**
