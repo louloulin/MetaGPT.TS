@@ -15,6 +15,8 @@ import { AIMessage } from '../types/message';
 import type { DependencyManager, DependencyManagerConfig } from '../actions/dependency-manager/dependency-manager';
 import { DependencyManagerFactory } from '../actions/dependency-manager/dependency-manager-factory';
 import type { SupportedLanguage } from '../actions/dependency-manager/dependency-manager-factory';
+import { StatisticalAnalyzerTool } from '../tools/analysis/statistical-analyzer';
+import { NLQueryProcessor } from '../tools/analysis/nl-query-processor';
 
 /**
  * Run mode for data interpreter
@@ -109,6 +111,8 @@ export class DataInterpreter extends BaseRole {
   private useAutoLanguageDetection = true;
   private config: DataInterpreterConfig;
   private filename: string = '';
+  private statisticalAnalyzer: StatisticalAnalyzerTool;
+  private nlQueryProcessor: NLQueryProcessor;
 
   /**
    * 构造函数
@@ -151,6 +155,12 @@ export class DataInterpreter extends BaseRole {
     
     // Initialize dependency manager if enabled
     this.initDependencyManager();
+    
+    // Initialize statistical analyzer
+    this.statisticalAnalyzer = new StatisticalAnalyzerTool();
+    
+    // Initialize NL query processor
+    this.nlQueryProcessor = new NLQueryProcessor({ llm: this.llm });
     
     // Initialize role
     this.initialize();
@@ -252,7 +262,73 @@ export class DataInterpreter extends BaseRole {
   }
 
   /**
-   * Think about the next action based on the current context
+   * Perform statistical analysis
+   */
+  private async performStatisticalAnalysis(data: any[], analysisType: string, options?: any): Promise<any> {
+    try {
+      const result = await this.statisticalAnalyzer.execute({
+        type: analysisType,
+        data,
+        options
+      });
+
+      if (result.success) {
+        await this.addToWorkingMemory(this.createAnalysisMessage(
+          `Statistical analysis (${analysisType}) completed successfully`,
+          {
+            analysisType,
+            results: result.data
+          }
+        ));
+        return result.data;
+      } else {
+        throw new Error(result.message);
+      }
+    } catch (error) {
+      const analysisError = error as Error;
+      await this.addToWorkingMemory(this.createErrorMessage(
+        analysisError,
+        'STATISTICAL_ANALYSIS_ERROR'
+      ));
+      throw analysisError;
+    }
+  }
+
+  /**
+   * Process natural language query
+   */
+  private async processNaturalLanguageQuery(query: string, data: any[], context?: any): Promise<any> {
+    try {
+      const result = await this.nlQueryProcessor.execute({
+        query,
+        data,
+        context
+      });
+
+      if (result.success) {
+        await this.addToWorkingMemory(this.createAnalysisMessage(
+          `Natural language query processed successfully: "${query}"`,
+          {
+            query,
+            results: result.data
+          }
+        ));
+        return result.data;
+      } else {
+        throw new Error(result.message);
+      }
+    } catch (error) {
+      const queryError = error as Error;
+      await this.addToWorkingMemory(this.createErrorMessage(
+        queryError,
+        'QUERY_PROCESSING_ERROR'
+      ));
+      throw queryError;
+    }
+  }
+
+  /**
+   * Override think method to include natural language query processing
    */
   public override async think(): Promise<boolean> {
     try {
@@ -271,14 +347,50 @@ export class DataInterpreter extends BaseRole {
         return false;
       }
 
-      // Create prompt for LLM
+      // Create prompt for LLM with natural language query capabilities
       const prompt = `Based on the following requirement, please analyze the data and provide insights:
 ${lastMessage.content}
+
+You can use the following capabilities:
+1. Statistical Analysis:
+   - Descriptive statistics
+   - Correlation analysis
+   - Regression analysis
+   - Hypothesis testing
+   - Distribution analysis
+   - Time series analysis
+   - Clustering analysis
+   - Anomaly detection
+   - Factor analysis
+
+2. Natural Language Queries:
+   - Filter data based on conditions
+   - Aggregate data (sum, average, etc.)
+   - Sort data by fields
+   - Group data by fields
+   - Compare different groups/periods
+   - Analyze trends over time
+   - Custom analysis
 
 Please provide your response in the following JSON format:
 {
   "thoughts": "your analysis process",
-  "code": "the Python code to perform the analysis",
+  "queries": [
+    {
+      "type": "natural language query",
+      "query": "the query to execute",
+      "context": {
+        // Query-specific context
+      }
+    }
+  ],
+  "analysis": {
+    "type": "statistical analysis type",
+    "options": {
+      // Analysis-specific options
+    }
+  },
+  "code": "the Python code to perform additional analysis",
   "insights": "key findings and insights from the analysis",
   "next_action": "whether further analysis is needed (true/false)"
 }`;
@@ -306,6 +418,46 @@ Please provide your response in the following JSON format:
             }
           ));
           return false;
+        }
+
+        // Process natural language queries if any
+        if (parsedResponse.queries && parsedResponse.queries.length > 0) {
+          try {
+            const queryResults = await Promise.all(
+              parsedResponse.queries.map(async (q: any) => {
+                const result = await this.processNaturalLanguageQuery(
+                  q.query,
+                  parsedResponse.data,
+                  q.context
+                );
+                return {
+                  query: q.query,
+                  results: result
+                };
+              })
+            );
+            
+            // Update insights with query results
+            parsedResponse.insights = `${parsedResponse.insights}\n\nQuery Results:\n${JSON.stringify(queryResults, null, 2)}`;
+          } catch (queryError) {
+            console.error(`[${this.name}] Query processing error:`, queryError);
+          }
+        }
+
+        // Perform statistical analysis if requested
+        if (parsedResponse.analysis?.type) {
+          try {
+            const analysisResult = await this.performStatisticalAnalysis(
+              parsedResponse.data,
+              parsedResponse.analysis.type,
+              parsedResponse.analysis.options
+            );
+            
+            // Update insights with statistical analysis results
+            parsedResponse.insights = `${parsedResponse.insights}\n\nStatistical Analysis Results:\n${JSON.stringify(analysisResult, null, 2)}`;
+          } catch (analysisError) {
+            console.error(`[${this.name}] Statistical analysis error:`, analysisError);
+          }
         }
 
         // Add thoughts to working memory
@@ -344,20 +496,7 @@ Please provide your response in the following JSON format:
         return false;
       }
     } catch (error) {
-      const unexpectedError = error as Error;
-      console.error(`[${this.name}] Unexpected error:`, unexpectedError);
-      await this.addToWorkingMemory(new AIMessage(
-        "Error: An unexpected error occurred. Please try again.",
-        {
-          importance: 1,
-          tags: ["error", "unexpected_error"],
-          context: {
-            errorType: "UNEXPECTED_ERROR",
-            errorMessage: unexpectedError.message,
-            timestamp: new Date().toISOString()
-          }
-        }
-      ));
+      console.error(`[${this.name}] Error in think:`, error);
       return false;
     }
   }
