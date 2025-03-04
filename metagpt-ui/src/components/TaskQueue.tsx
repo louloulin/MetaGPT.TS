@@ -1,14 +1,5 @@
 import React from 'react';
-
-interface Task {
-  id: string;
-  type: string;
-  priority: 'high' | 'medium' | 'low';
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  progress: number;
-  createdAt: Date;
-  assignedTo?: string;
-}
+import type { Task } from '../types';
 
 interface TaskQueueProps {
   tasks: Task[];
