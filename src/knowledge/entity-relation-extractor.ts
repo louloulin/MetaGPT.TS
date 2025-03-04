@@ -7,7 +7,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger';
-import type { LLMProvider } from '../llm/llm-provider';
+import type { LLMProvider } from '../types/llm';
 import type { KnowledgeNode, KnowledgeEdge } from './distributed-kg';
 
 /**
@@ -190,7 +190,11 @@ export class EntityRelationExtractor {
       const prompt = (this.options.entityExtractionPrompt || DEFAULT_ENTITY_EXTRACTION_PROMPT)
         .replace('{{text}}', text);
       
-      const response = await this.llmProvider.generate(prompt);
+      const response = await this.llmProvider.generate(prompt, {
+        temperature: 0.2,
+        maxTokens: 2000
+      });
+      
       const entities = this.parseEntitiesResponse(response);
       
       // Filter entities by confidence threshold
@@ -217,7 +221,11 @@ export class EntityRelationExtractor {
         .replace('{{text}}', text)
         .replace('{{entities}}', entitiesText);
       
-      const response = await this.llmProvider.generate(prompt);
+      const response = await this.llmProvider.generate(prompt, {
+        temperature: 0.3,
+        maxTokens: 2000
+      });
+      
       const relations = this.parseRelationsResponse(response, entities);
       
       // Filter relations by confidence threshold
@@ -239,7 +247,11 @@ export class EntityRelationExtractor {
   public async extractTriples(text: string): Promise<Triple[]> {
     try {
       const prompt = DEFAULT_TRIPLE_EXTRACTION_PROMPT.replace('{{text}}', text);
-      const response = await this.llmProvider.generate(prompt);
+      const response = await this.llmProvider.generate(prompt, {
+        temperature: 0.2,
+        maxTokens: 1500
+      });
+      
       const triples = this.parseTriplesResponse(response, text);
       
       // Filter triples by confidence threshold
@@ -367,8 +379,16 @@ export class EntityRelationExtractor {
       });
       
       // Validate and transform relations
-      return parsedRelations
-        .map((relation: any) => {
+      type RelationResult = ExtractedRelation | null;
+      
+      const results: RelationResult[] = parsedRelations
+        .map((relation: { 
+          sourceEntity?: string; 
+          targetEntity?: string; 
+          type?: string; 
+          properties?: Record<string, any>; 
+          confidence?: number;
+        }) => {
           const sourceEntityName = relation.sourceEntity?.toLowerCase();
           const targetEntityName = relation.targetEntity?.toLowerCase();
           
@@ -393,8 +413,10 @@ export class EntityRelationExtractor {
             properties: relation.properties || {},
             confidence: relation.confidence || 0.5,
           };
-        })
-        .filter((relation): relation is ExtractedRelation => relation !== null);
+        });
+      
+      // Filter out null values
+      return results.filter((item): item is ExtractedRelation => item !== null);
     } catch (error) {
       logger.error('Error parsing relation extraction response:', error);
       return [];
@@ -421,8 +443,15 @@ export class EntityRelationExtractor {
       const parsedTriples = JSON.parse(jsonStr);
       
       // Validate and transform triples
-      return parsedTriples
-        .map((triple: any) => {
+      type TripleResult = Triple | null;
+      
+      const results: TripleResult[] = parsedTriples
+        .map((triple: { 
+          subject?: string; 
+          predicate?: string; 
+          object?: string; 
+          confidence?: number;
+        }) => {
           // Skip incomplete triples
           if (!triple.subject || !triple.predicate || !triple.object) {
             return null;
@@ -435,8 +464,10 @@ export class EntityRelationExtractor {
             confidence: triple.confidence || 0.5,
             sourceText,
           };
-        })
-        .filter((triple): triple is Triple => triple !== null);
+        });
+      
+      // Filter out null values
+      return results.filter((item): item is Triple => item !== null);
     } catch (error) {
       logger.error('Error parsing triple extraction response:', error);
       return [];
