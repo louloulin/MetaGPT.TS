@@ -5,11 +5,11 @@
  * 进行高效的记忆管理、检索和知识积累。
  */
 
-import { MemoryManagerImpl } from '../memory/memory-manager';
-import type { Message } from '../types/message';
-import { UserMessage, AIMessage } from '../types/message';
-import type { VercelLLMProvider } from '../provider/vercel-llm';
-import { logger } from '../utils/logger';
+import { MemoryManagerImpl } from '../src/memory/memory-manager';
+import type { Message } from '../src/types/message';
+import { UserMessage, AIMessage } from '../src/types/message';
+import type { VercelLLMProvider } from '../src/provider/vercel-llm';
+import { logger } from '../src/utils/logger';
 import path from 'path';
 
 async function runMemoryExample() {

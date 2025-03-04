@@ -39,5 +39,8 @@ export * from './provider/vercel-llm';
 // 工具函数
 export * from './utils/common';
 
+// Export Code Understanding Services
+export * from './services/code-understanding';
+
 // 版本信息
 export const VERSION = '0.1.0';
