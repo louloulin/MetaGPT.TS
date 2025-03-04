@@ -4,10 +4,13 @@
   "description": "A TypeScript implementation of MetaGPT",
   "module": "src/index.ts",
   "type": "module",
+  "bin": {
+    "metagpt": "./dist/bin/metagpt.js"
+  },
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
-    "build": "bun build ./src/index.ts --outdir ./dist",
+    "build": "bun build ./src/index.ts --outdir ./dist --target=node && bun build ./src/bin/metagpt.ts --outdir ./dist/bin --target=node",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint . --ext .ts",
