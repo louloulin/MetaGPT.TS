@@ -1,1 +1,1 @@
-参考 metagpt的实现，基于 @pb.md  修复或优化 @metagpt-ts 的功能，优化后更新 @pb.md 标记已完成
+参考 metagpt目录下的源码，  按照 @plan4.md 计划实现 功能，完成后标记 @plan4.md 完成，继续实现其他的
