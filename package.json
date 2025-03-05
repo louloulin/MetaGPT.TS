@@ -6,11 +6,11 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "turbo run build",
-    "dev": "turbo run dev",
-    "lint": "turbo run lint",
-    "test": "turbo run test",
-    "clean": "turbo run clean",
+    "build": "bun run --cwd packages/core build && bun run --cwd packages/ui build",
+    "dev": "bun run --cwd packages/ui dev",
+    "lint": "bun run --cwd packages/core lint && bun run --cwd packages/ui lint",
+    "test": "bun run --cwd packages/core test && bun run --cwd packages/ui test",
+    "clean": "rm -rf packages/*/dist packages/*/node_modules",
     "format": "prettier --write \"**/*.{ts,tsx,md}\""
   },
   "devDependencies": {
@@ -19,10 +19,8 @@
     "@typescript-eslint/parser": "^6.0.0",
     "eslint": "^8.0.0",
     "prettier": "^3.0.0",
-    "turbo": "^1.12.0",
     "typescript": "^5.0.0"
   },
-  "packageManager": "pnpm@10.5.2+sha512.da9dc28cd3ff40d0592188235ab25d3202add8a207afbedc682220e4a0029ffbff4562102b9e6e46b4e3f9e8bd53e6d05de48544b0c57d4b0179e22c76d1199b",
   "dependencies": {
     "@types/uuid": "^10.0.0",
     "uuid": "^11.1.0"
