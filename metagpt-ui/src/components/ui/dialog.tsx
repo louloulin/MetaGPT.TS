@@ -11,7 +11,46 @@ interface DialogProps {
   hideCloseButton?: boolean;
 }
 
-const Dialog: React.FC<DialogProps> = ({
+export interface DialogHeaderProps {
+  className?: string;
+  children: React.ReactNode;
+}
+
+const DialogHeader: React.FC<DialogHeaderProps> = ({
+  className,
+  children,
+  ...props
+}) => (
+  <div
+    className={cn("mb-4 flex flex-col space-y-1.5", className)}
+    {...props}
+  >
+    {children}
+  </div>
+);
+
+export interface DialogFooterProps {
+  className?: string;
+  children: React.ReactNode;
+}
+
+const DialogFooter: React.FC<DialogFooterProps> = ({
+  className,
+  children,
+  ...props
+}) => (
+  <div
+    className={cn("mt-4 flex justify-end space-x-2", className)}
+    {...props}
+  >
+    {children}
+  </div>
+);
+
+const Dialog: React.FC<DialogProps> & {
+  Header: typeof DialogHeader;
+  Footer: typeof DialogFooter;
+} = ({
   isOpen,
   onClose,
   title,
@@ -102,40 +141,7 @@ const Dialog: React.FC<DialogProps> = ({
   );
 };
 
-export interface DialogHeaderProps {
-  className?: string;
-  children: React.ReactNode;
-}
-
-const DialogHeader: React.FC<DialogHeaderProps> = ({
-  className,
-  children,
-  ...props
-}) => (
-  <div
-    className={cn("mb-4 flex flex-col space-y-1.5", className)}
-    {...props}
-  >
-    {children}
-  </div>
-);
-
-export interface DialogFooterProps {
-  className?: string;
-  children: React.ReactNode;
-}
-
-const DialogFooter: React.FC<DialogFooterProps> = ({
-  className,
-  children,
-  ...props
-}) => (
-  <div
-    className={cn("mt-4 flex justify-end space-x-2", className)}
-    {...props}
-  >
-    {children}
-  </div>
-);
+Dialog.Header = DialogHeader;
+Dialog.Footer = DialogFooter;
 
 export { Dialog, DialogHeader, DialogFooter }; 

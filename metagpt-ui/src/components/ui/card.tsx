@@ -1,5 +1,5 @@
 import * as React from "react"
-import { cn } from "@/lib/utils"
+import { cn } from "../../lib/utils"
 
 const Card = React.forwardRef<
   HTMLDivElement,
@@ -71,5 +71,20 @@ const CardFooter = React.forwardRef<
   />
 ))
 CardFooter.displayName = "CardFooter"
+
+// Add properties to Card component
+type CardComponent = typeof Card & {
+  Header: typeof CardHeader;
+  Title: typeof CardTitle;
+  Description: typeof CardDescription;
+  Content: typeof CardContent;
+  Footer: typeof CardFooter;
+};
+
+(Card as CardComponent).Header = CardHeader;
+(Card as CardComponent).Title = CardTitle;
+(Card as CardComponent).Description = CardDescription;
+(Card as CardComponent).Content = CardContent;
+(Card as CardComponent).Footer = CardFooter;
 
 export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent } 
