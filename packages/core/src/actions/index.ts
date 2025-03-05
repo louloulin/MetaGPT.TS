@@ -8,12 +8,12 @@ export { BaseAction } from './base-action';
 // Code and product related actions
 export { WriteCodeAction as WriteCode } from './write-code';
 // Temporarily commented out due to missing module
-// export { AnalyzePrompt } from './analyze-prompt';
+export { AnalyzePrompt } from './analyze-prompt';
 export { WritePRD } from './write-prd';
 export { WriteTutorial } from './write-tutorial';
 
 // Analysis actions
-export { AnalyzeTaskAction as AnalyzeTask } from './analyze-task';
+export { AnalyzeTask as AnalyzeTask } from './analyze-task';
 export { DesignArchitecture } from './design-architecture';
 export { DesignAPI } from './design-api';
 export { EvaluateArchitectureAction as  EvaluateArchitecture } from './evaluate-architecture';

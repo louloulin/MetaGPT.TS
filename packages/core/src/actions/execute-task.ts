@@ -6,7 +6,7 @@
  */
 
 import { BaseAction } from './base-action';
-import type { ActionOutput, ActionConfig } from '../types/action';
+import type { StreamActionOutput, ActionConfig } from '../types/action';
 import type { Task, TaskResult } from '../types/task';
 import { logger } from '../utils/logger';
 import { z } from 'zod';
@@ -93,7 +93,7 @@ export class ExecuteTask extends BaseAction {
    * Execute the task
    * @returns Result of task execution
    */
-  async run(): Promise<ActionOutput> {
+  async run(): Promise<StreamActionOutput> {
     try {
       logger.info(`Running ExecuteTask for: ${this.task?.title || 'Unknown task'}`);
       
@@ -256,5 +256,12 @@ Provide your response in the following JSON format:
         isSuccess: false
       };
     }
+  }
+
+  protected async prompt(): Promise<string> {
+    const instruction = this.task?.description || this.getArg<string>('instruction') || '';
+    const taskType = this.task?.task_type || this.config.taskType || 'GENERAL';
+    
+    return this.createTaskPrompt(instruction);
   }
 } 

@@ -1,5 +1,5 @@
 import { BaseAction } from './base-action';
-import type { ActionConfig, ActionOutput } from '../types/action';
+import type { StreamActionOutput, ActionConfig } from '../types/action';
 import { logger } from '../utils/logger';
 import { ProgrammingLanguage } from './write-code';
 
@@ -277,7 +277,7 @@ ${result.recommendations.longTerm.map(rec => `- ${rec}`).join('\n')}
    * Execute the code review action
    * @returns Review results with detailed analysis
    */
-  public async run(): Promise<ActionOutput> {
+  public async run(): Promise<StreamActionOutput> {
     try {
       // Get prompt
       const prompt = await this.prompt();
@@ -299,7 +299,7 @@ ${result.recommendations.longTerm.map(rec => `- ${rec}`).join('\n')}
     } catch (error) {
       logger.error(`[${this.name}] Error in code review:`, error);
       return this.createOutput(
-        `Failed to review code: ${error}`,
+        `Failed to review code: ${error instanceof Error ? error.message : String(error)}`,
         'failed'
       );
     }

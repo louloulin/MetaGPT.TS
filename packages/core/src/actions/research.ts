@@ -6,7 +6,7 @@
  */
 
 import { BaseAction } from './base-action';
-import type { ActionOutput, ActionConfig } from '../types/action';
+import type { StreamActionOutput, ActionConfig } from '../types/action';
 import { logger } from '../utils/logger';
 
 /**
@@ -132,6 +132,8 @@ export interface ResearchConfig {
  * Action for performing research and information synthesis
  */
 export class Research extends BaseAction {
+  private currentConfig: ResearchConfig | null = null;
+
   constructor(config: ActionConfig) {
     super({
       ...config,
@@ -140,11 +142,14 @@ export class Research extends BaseAction {
     });
   }
 
-  /**
-   * Runs the Research action
-   * @returns The research results
-   */
-  public async run(): Promise<ActionOutput> {
+  protected async prompt(): Promise<string> {
+    if (!this.currentConfig) {
+      throw new Error('Research configuration not set');
+    }
+    return this.constructResearchPrompt(this.currentConfig);
+  }
+
+  public async run(): Promise<StreamActionOutput> {
     try {
       logger.info(`[${this.name}] Running Research action`);
       
@@ -164,8 +169,8 @@ export class Research extends BaseAction {
       const excludedSources = this.getArg<string[]>('excluded_sources') || [];
       const timeConstraints = this.getArg<string>('time_constraints') || '';
 
-      // Perform the research
-      const researchResult = await this.performResearch({
+      // Store the config for the prompt method
+      this.currentConfig = {
         query,
         topic_type: topicType,
         objective,
@@ -174,7 +179,10 @@ export class Research extends BaseAction {
         focus_areas: focusAreas,
         excluded_sources: excludedSources,
         time_constraints: timeConstraints
-      });
+      };
+
+      // Perform the research
+      const researchResult = await this.performResearch(this.currentConfig);
 
       // Format the research result
       const formattedResult = JSON.stringify(researchResult);
@@ -189,20 +197,12 @@ export class Research extends BaseAction {
     }
   }
 
-  /**
-   * Performs the research process
-   * @param config The research configuration
-   * @returns The research result
-   */
   private async performResearch(config: ResearchConfig): Promise<ResearchResult> {
     try {
       logger.info(`[${this.name}] Performing research for query: ${config.query}`);
       
-      // Construct the research prompt
-      const prompt = this.constructResearchPrompt(config);
-      
-      // Send to LLM for research
-      const response = await this.llm?.generate(prompt);
+      // Use ask method from BaseAction instead of direct llm access
+      const response = await this.ask(await this.prompt());
       
       if (!response) {
         throw new Error('Failed to get response from LLM');

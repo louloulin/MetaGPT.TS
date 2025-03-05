@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import { BaseAction } from './base-action';
-import type { ActionConfig, ActionOutput } from '../types/action';
+import type { StreamActionOutput, ActionConfig } from '../types/action';
 import { logger } from '../utils/logger';
 import { stringifyWithCircularRefs } from '../utils/json';
 import type { Message } from '../types/message';
@@ -231,7 +231,7 @@ export class GenerateQuestions extends BaseAction {
    * 
    * @returns Action result with generated questions
    */
-  async run(): Promise<ActionOutput> {
+  async run(): Promise<StreamActionOutput> {
     logger.info(`Running GenerateQuestions action`);
     
     try {
@@ -247,13 +247,6 @@ export class GenerateQuestions extends BaseAction {
       if (!content) {
         return this.createOutput(
           'No content provided for question generation. Please provide text content.',
-          'failed'
-        );
-      }
-      
-      if (!this.llm) {
-        return this.createOutput(
-          'LLM provider is required for question generation',
           'failed'
         );
       }
@@ -391,8 +384,11 @@ export class GenerateQuestions extends BaseAction {
   private async executeNode(node: QuestionNode, content: string): Promise<any> {
     logger.debug(`Executing question node: ${node.key}`);
     
-    const prompt = this.createNodePrompt(node, content);
-    const response = await this.llm.generate(prompt);
+    // Set the current node as an argument for the prompt method
+    this.setArg('currentNode', node);
+    
+    // Use ask method from BaseAction instead of direct llm access
+    const response = await this.ask(await this.prompt());
     
     try {
       // Parse the result based on the expected type
@@ -453,5 +449,18 @@ CONFIGURATION:
     }
 
     return prompt;
+  }
+
+  protected async prompt(): Promise<string> {
+    const content = this.questionConfig.content || 
+      (this.context?.args?.message as Message)?.content || 
+      this.context?.args?.context?.toString() || '';
+    const node = this.getArg<QuestionNode>('currentNode');
+    
+    if (!node) {
+      throw new Error('No node provided for prompt generation');
+    }
+
+    return this.createNodePrompt(node, content);
   }
 } 

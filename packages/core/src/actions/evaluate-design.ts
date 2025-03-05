@@ -1,5 +1,5 @@
 import { BaseAction } from './base-action';
-import type { ActionOutput, ActionConfig } from '../types/action';
+import type { StreamActionOutput, ActionConfig } from '../types/action';
 import { logger } from '../utils/logger';
 
 /**
@@ -80,172 +80,81 @@ export interface DesignEvaluation {
   };
 }
 
+export interface EvaluateDesignConfig extends ActionConfig {
+  evaluationType?: 'architecture' | 'component' | 'api' | 'database' | 'comprehensive';
+  criteria?: string[];
+  standards?: string[];
+}
+
 /**
  * Action for evaluating system design
  */
 export class EvaluateDesign extends BaseAction {
-  constructor(config: ActionConfig) {
+  private evaluationType: string;
+  private criteria: string[];
+  private standards: string[];
+
+  constructor(config: EvaluateDesignConfig) {
     super({
       ...config,
       name: config.name || 'EvaluateDesign',
       description: config.description || 'Evaluate system design against best practices and requirements'
     });
+
+    this.evaluationType = config.evaluationType || 'comprehensive';
+    this.criteria = config.criteria || [
+      'Scalability',
+      'Maintainability',
+      'Security',
+      'Performance',
+      'Reliability',
+      'Cost-effectiveness'
+    ];
+    this.standards = config.standards || [
+      'SOLID Principles',
+      'Clean Architecture',
+      'Design Patterns',
+      'Industry Best Practices'
+    ];
   }
 
   protected async prompt(): Promise<string> {
-    // Get and validate required arguments
     const design = this.getArg<string>('design');
+    const requirements = this.getArg<string>('requirements');
+    const context = this.getArg<string>('context') || '';
+
     if (!design) {
       throw new Error('No design provided for evaluation');
     }
 
-    // Get optional arguments with defaults
-    const requirements = this.getArg<string>('requirements') || '';
-    const context = this.getArg<string>('context') || '';
-    const focus = this.getArg<string[]>('focus') || [];
+    return `As a senior software architect, evaluate the following ${this.evaluationType} design:
 
-    // Log evaluation start
-    logger.info(`[${this.name}] Starting design evaluation`);
-    logger.debug(`[${this.name}] Configuration:`, {
-      hasRequirements: !!requirements,
-      hasContext: !!context,
-      focusAreas: focus
-    });
-
-    return `Please evaluate the following system design against best practices and requirements:
-
-Design:
+${context ? `Context:\n${context}\n\n` : ''}
+Design Documentation:
 ${design}
 
 ${requirements ? `Requirements:\n${requirements}\n\n` : ''}
-${context ? `Context:\n${context}\n\n` : ''}
-${focus.length ? `Focus Areas:\n${focus.join('\n')}\n\n` : ''}
 
-Please provide the evaluation in the following JSON format:
+Evaluation Criteria:
+${this.criteria.map(c => `- ${c}`).join('\n')}
 
-{
-  "summary": {
-    "overallScore": "Score from 0-100",
-    "majorStrengths": ["List of major strengths"],
-    "majorConcerns": ["List of major concerns"],
-    "verdict": "Overall evaluation verdict"
-  },
-  "architecturalPrinciples": {
-    "name": "Architectural Principles",
-    "score": "${Object.values(EvaluationScore).filter(s => typeof s === 'number').join(' | ')}",
-    "strengths": ["List of strengths"],
-    "weaknesses": ["List of weaknesses"],
-    "recommendations": ["List of recommendations"],
-    "priority": "high | medium | low",
-    "impact": "Impact description",
-    "effort": "Required effort"
-  },
-  "scalability": {
-    "name": "Scalability and Performance",
-    "score": "${Object.values(EvaluationScore).filter(s => typeof s === 'number').join(' | ')}",
-    "strengths": ["List of strengths"],
-    "weaknesses": ["List of weaknesses"],
-    "recommendations": ["List of recommendations"],
-    "priority": "high | medium | low",
-    "impact": "Impact description",
-    "effort": "Required effort"
-  },
-  "security": {
-    "name": "Security and Reliability",
-    "score": "${Object.values(EvaluationScore).filter(s => typeof s === 'number').join(' | ')}",
-    "strengths": ["List of strengths"],
-    "weaknesses": ["List of weaknesses"],
-    "recommendations": ["List of recommendations"],
-    "priority": "high | medium | low",
-    "impact": "Impact description",
-    "effort": "Required effort"
-  },
-  "maintainability": {
-    "name": "Maintainability and Extensibility",
-    "score": "${Object.values(EvaluationScore).filter(s => typeof s === 'number').join(' | ')}",
-    "strengths": ["List of strengths"],
-    "weaknesses": ["List of weaknesses"],
-    "recommendations": ["List of recommendations"],
-    "priority": "high | medium | low",
-    "impact": "Impact description",
-    "effort": "Required effort"
-  },
-  "requirementsFulfillment": {
-    "name": "Requirements Fulfillment",
-    "score": "${Object.values(EvaluationScore).filter(s => typeof s === 'number').join(' | ')}",
-    "strengths": ["List of strengths"],
-    "weaknesses": ["List of weaknesses"],
-    "recommendations": ["List of recommendations"],
-    "priority": "high | medium | low",
-    "impact": "Impact description",
-    "effort": "Required effort"
-  },
-  "technologyChoices": {
-    "name": "Technology Choices",
-    "score": "${Object.values(EvaluationScore).filter(s => typeof s === 'number').join(' | ')}",
-    "strengths": ["List of strengths"],
-    "weaknesses": ["List of weaknesses"],
-    "recommendations": ["List of recommendations"],
-    "priority": "high | medium | low",
-    "impact": "Impact description",
-    "effort": "Required effort"
-  },
-  "risks": {
-    "high": [
-      {
-        "description": "Risk description",
-        "impact": "Risk impact",
-        "mitigation": "Mitigation strategy"
-      }
-    ],
-    "medium": [
-      {
-        "description": "Risk description",
-        "impact": "Risk impact",
-        "mitigation": "Mitigation strategy"
-      }
-    ],
-    "low": [
-      {
-        "description": "Risk description",
-        "impact": "Risk impact",
-        "mitigation": "Mitigation strategy"
-      }
-    ]
-  },
-  "recommendations": {
-    "immediate": [
-      {
-        "action": "Recommended action",
-        "benefit": "Expected benefit",
-        "effort": "Required effort"
-      }
-    ],
-    "shortTerm": [
-      {
-        "action": "Recommended action",
-        "benefit": "Expected benefit",
-        "effort": "Required effort"
-      }
-    ],
-    "longTerm": [
-      {
-        "action": "Recommended action",
-        "benefit": "Expected benefit",
-        "effort": "Required effort"
-      }
-    ]
-  }
-}
+Standards to Consider:
+${this.standards.map(s => `- ${s}`).join('\n')}
 
-Please ensure:
-1. Scores are justified with specific examples
-2. Recommendations are actionable and prioritized
-3. Risks are properly categorized by severity
-4. Impact and effort estimations are realistic
-5. All aspects are thoroughly evaluated
-6. Recommendations consider resource constraints
-7. Both technical and business impacts are considered`;
+Please provide a comprehensive evaluation including:
+1. Overall Assessment
+2. Strengths and Weaknesses
+3. Compliance with Standards
+4. Risk Analysis
+5. Recommendations for Improvement
+6. Scalability and Future-proofing Assessment
+
+Focus on:
+- Architectural principles and patterns
+- Component relationships and dependencies
+- System boundaries and interfaces
+- Technical debt implications
+- Implementation feasibility`;
   }
 
   /**
@@ -466,31 +375,33 @@ ${evaluation.recommendations.longTerm.map(rec => `
    * Execute the design evaluation action
    * @returns Evaluation results with detailed breakdown
    */
-  public async run(): Promise<ActionOutput> {
+  public async run(): Promise<StreamActionOutput> {
     try {
-      // Get prompt
-      const prompt = await this.prompt();
+      const design = this.getArg<string>('design');
+      if (!design) {
+        return {
+          content: 'No design provided for evaluation',
+          status: 'failed'
+        };
+      }
+
+      const response = await this.ask(await this.prompt());
       
-      // Generate evaluation using LLM
-      const response = await this.ask(prompt);
-      
-      // Parse and validate evaluation
-      const result = this.parseEvaluation(response);
-      
-      // Format as markdown
-      const formattedResult = this.formatEvaluation(result);
-      
-      return this.createOutput(
-        formattedResult,
-        'completed',
-        result
-      );
-    } catch (error) {
-      logger.error(`[${this.name}] Error in design evaluation:`, error);
-      return this.createOutput(
-        `Failed to evaluate design: ${error}`,
-        'failed'
-      );
+      return {
+        content: response,
+        status: 'completed',
+        metadata: {
+          evaluationType: this.evaluationType,
+          criteria: this.criteria,
+          standards: this.standards
+        }
+      };
+    } catch (error: unknown) {
+      logger.error('[EvaluateDesign] Error:', error);
+      return {
+        content: `Failed to evaluate design: ${error instanceof Error ? error.message : String(error)}`,
+        status: 'failed'
+      };
     }
   }
 } 

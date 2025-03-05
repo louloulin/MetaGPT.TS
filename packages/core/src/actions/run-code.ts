@@ -6,7 +6,7 @@
  */
 
 import { BaseAction } from '../actions/base-action';
-import type { ActionConfig, ActionOutput, ActionContext } from '../types/action';
+import type { ActionConfig, StreamActionOutput, ActionContext } from '../types/action';
 import { spawn } from 'child_process';
 import { mkdir, writeFile, rm } from 'fs/promises';
 import { join } from 'path';
@@ -78,11 +78,27 @@ export class RunCode extends BaseAction {
     };
   }
 
+  protected async prompt(): Promise<string> {
+    const messages = await this.context.memory?.get();
+    const lastMessage = messages?.[messages.length - 1];
+    const { code, language } = this.extractCodeAndLanguage(lastMessage?.content || '');
+
+    return `Execute the following ${language || 'JavaScript'} code:
+
+${code || ''}
+
+Please provide:
+1. Code execution results
+2. Any error messages or warnings
+3. Performance metrics
+4. Resource usage statistics`;
+  }
+
   /**
    * Runs the RunCode action
    * @returns The execution results
    */
-  public async run(): Promise<ActionOutput> {
+  public async run(): Promise<StreamActionOutput> {
     try {
       const messages = await this.context.memory?.get();
       logger.debug('RunCode: Retrieved messages from memory', { messageCount: messages?.length });

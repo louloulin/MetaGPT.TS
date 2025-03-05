@@ -6,8 +6,7 @@
  */
 
 import { BaseAction } from './base-action';
-import type { Message } from '../types/message';
-import type { ActionOutput, ActionConfig } from '../types/action';
+import type { StreamActionOutput as ActionOutput, ActionConfig } from '../types/action';
 import { logger } from '../utils/logger';
 import { RunCode, ProgrammingLanguage, type ExecutionResult } from './run-code';
 

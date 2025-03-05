@@ -6,7 +6,7 @@
  */
 
 import { BaseAction } from './base-action';
-import type { ActionOutput, ActionConfig } from '../types/action';
+import type { StreamActionOutput, ActionConfig } from '../types/action';
 import type { Message } from '../types/message';
 import { logger } from '../utils/logger';
 import { SearchProviderType } from '../config/search';
@@ -68,80 +68,53 @@ export class SearchAndSummarize extends BaseAction {
     this.searchProvider = this.getArg<SearchProviderType>('provider') || SearchProviderType.SERPAPI;
   }
 
+  protected async prompt(): Promise<string> {
+    // Get messages from context args
+    const messages = this.getArg<Message[]>('messages') || [];
+    if (messages.length === 0) {
+      throw new Error('No messages in context. Please provide conversation history to search and summarize.');
+    }
+
+    // Get the query from the last message
+    const lastMessage = messages[messages.length - 1];
+    const query = lastMessage?.content;
+    if (!query) {
+      throw new Error('The last message has no content. Please provide a valid query.');
+    }
+
+    // Previous messages in the conversation (excluding the current query)
+    const previousMessages = messages.slice(0, -1);
+    const queryHistory = previousMessages.map((m: Message) => `${m.role}: ${m.content}`).join('\n');
+
+    // Get search results
+    const searchResults = await this.performSearch(query);
+
+    // Format the prompt with search results and conversation history
+    return SEARCH_AND_SUMMARIZE_PROMPT
+      .replace('{CONTEXT}', searchResults || '')
+      .replace('{QUERY_HISTORY}', queryHistory)
+      .replace(/{QUERY}/g, `${lastMessage.role}: ${query}`);
+  }
+
   /**
    * Runs the SearchAndSummarize action
    * @returns The summarized search results
    */
-  public async run(): Promise<ActionOutput> {
+  public async run(): Promise<StreamActionOutput> {
     try {
       logger.info(`[${this.name}] Running SearchAndSummarize action`);
       
-      // Get messages from context args
-      const messages = this.getArg<Message[]>('messages') || [];
-      
-      if (messages.length === 0) {
-        return this.createOutput(
-          'No messages in context. Please provide conversation history to search and summarize.',
-          'failed'
-        );
-      }
-
-      // Get the query from the last message
-      const lastMessage = messages[messages.length - 1];
-      const query = lastMessage?.content;
-      
-      if (!query) {
-        return this.createOutput(
-          'The last message has no content. Please provide a valid query.',
-          'failed'
-        );
-      }
-      
-      logger.info(`[${this.name}] Searching for: ${query.substring(0, 100)}...`);
-      
-      // Perform the search 
-      const searchResults = await this.performSearch(query);
-      
-      if (!searchResults) {
-        logger.warn(`[${this.name}] No search results found for query: ${query.substring(0, 50)}...`);
-        return this.createOutput(
-          `I couldn't find any relevant information for your query. Please try rephrasing your question or providing more details.`,
-          'completed'
-        );
-      }
-      
-      this.lastSearchResult = searchResults;
-
-      // Previous messages in the conversation (excluding the current query)
-      const previousMessages = messages.slice(0, -1);
-      const queryHistory = previousMessages.map((m: Message) => `${m.role}: ${m.content}`).join('\n');
-      
-      // Set the system prompt
-      const systemMessage = this.getArg<string[]>('system_messages')?.[0] || SEARCH_AND_SUMMARIZE_SYSTEM_EN_US;
-      
-      // Format the prompt with search results and conversation history
-      const prompt = SEARCH_AND_SUMMARIZE_PROMPT
-        .replace('{CONTEXT}', searchResults)
-        .replace('{QUERY_HISTORY}', queryHistory)
-        .replace('{QUERY}', `${lastMessage.role}: ${query}`);
-      
-      // Get summarized response from LLM
-      const response = await this.ask(prompt);
+      // Get the response using the prompt
+      const response = await this.ask(await this.prompt());
       
       return this.createOutput(
         response,
         'completed',
-        { query, searchResults }
+        { searchResults: this.lastSearchResult }
       );
     } catch (error) {
       logger.error(`[${this.name}] Error in SearchAndSummarize action:`, error);
-      
-      await this.handleException(error as Error);
-      
-      return this.createOutput(
-        `Failed to search and summarize: ${error}`,
-        'failed'
-      );
+      return this.handleException(error as Error);
     }
   }
   

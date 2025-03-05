@@ -1,5 +1,5 @@
 import { BaseAction } from './base-action';
-import type { ActionConfig, ActionOutput } from '../types/action';
+import type { StreamActionOutput, ActionConfig } from '../types/action';
 import { logger } from '../utils/logger';
 
 /**
@@ -15,11 +15,16 @@ export class MapComponents extends BaseAction {
     });
   }
 
+  protected async prompt(): Promise<string> {
+    const components = this.getArg<string>('components') || '';
+    return this.createMappingPrompt(components);
+  }
+
   /**
    * Execute the component mapping action
    * @returns The component relationship map as action output
    */
-  async run(): Promise<ActionOutput> {
+  async run(): Promise<StreamActionOutput> {
     logger.info(`[${this.name}] Running component mapping`);
     
     // Get components list from args
@@ -32,16 +37,9 @@ export class MapComponents extends BaseAction {
       );
     }
 
-    if (!this.llm) {
-      return this.createOutput(
-        'LLM provider is required for component mapping',
-        'failed'
-      );
-    }
-
     try {
-      const prompt = this.createMappingPrompt(components);
-      const mapping = await this.llm.chat(prompt);
+      // Use ask method from BaseAction instead of direct llm access
+      const mapping = await this.ask(await this.prompt());
 
       return this.createOutput(
         mapping,

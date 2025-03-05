@@ -1,7 +1,9 @@
-import type { Action, ActionOutput, ActionContext } from '../types/action';
+import type { Action, ActionContext } from '../types/action';
+import type { StreamActionOutput } from '../types/action';
 import type { LLMProvider } from '../types/llm';
 import { logger } from '../utils/logger';
 import { handleLLMResponse } from '../utils/stream-helper';
+import type { MemoryManager } from '../types/memory';
 
 export interface ProvideFeedbackArgs {
   question: string;
@@ -11,6 +13,7 @@ export interface ProvideFeedbackArgs {
 
 export class ProvideFeedback implements Action {
   name = 'ProvideFeedback';
+  desc = 'Provide constructive feedback on student answers';
   context: ActionContext = {
     name: 'provide_feedback',
     description: 'Provide constructive feedback on student answers',
@@ -19,19 +22,17 @@ export class ProvideFeedback implements Action {
       answer: 'The student\'s answer',
       style: 'Optional feedback style'
     },
-    memory: null,
-    workingMemory: null,
-    llm: null
+    memory: undefined,
+    workingMemory: undefined
   };
   prefix = 'feedback';
   llm: LLMProvider;
 
   constructor({ llm }: { llm: LLMProvider }) {
     this.llm = llm;
-    this.context.llm = llm;
   }
 
-  async run(args?: ProvideFeedbackArgs): Promise<ActionOutput> {
+  async run(args?: ProvideFeedbackArgs): Promise<StreamActionOutput> {
     if (!args?.question || !args?.answer) {
       return {
         status: 'failed',

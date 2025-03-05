@@ -8,7 +8,7 @@
 import path from 'path';
 import fs from 'fs/promises';
 import { BaseAction } from './base-action';
-import type { ActionOutput, ActionConfig } from '../types/action';
+import type { StreamActionOutput, ActionConfig } from '../types/action';
 import type { Document } from '../types/document';
 import { DocumentImpl, RepoImpl } from '../types/document';
 import { logger } from '../utils/logger';
@@ -70,6 +70,11 @@ export class PrepareDocuments extends BaseAction {
     })}`);
   }
   
+  protected async prompt(): Promise<string> {
+    // This action doesn't use LLM, but we need to implement the abstract method
+    throw new Error('PrepareDocuments action does not use LLM prompts');
+  }
+  
   /**
    * Initialize the repository
    * @returns Path to the initialized repository
@@ -124,7 +129,7 @@ export class PrepareDocuments extends BaseAction {
    * Run the PrepareDocuments action
    * @returns Action result containing the initialized document
    */
-  async run(): Promise<ActionOutput> {
+  async run(): Promise<StreamActionOutput> {
     try {
       logger.info(`Running PrepareDocuments action`);
       

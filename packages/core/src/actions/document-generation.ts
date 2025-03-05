@@ -6,7 +6,7 @@
  */
 
 import { BaseAction } from './base-action';
-import type { ActionOutput, ActionConfig } from '../types/action';
+import type { StreamActionOutput, ActionConfig } from '../types/action';
 import type { Document } from '../types/document';
 import { DocumentStatus } from '../types/document';
 import { logger } from '../utils/logger';
@@ -130,11 +130,71 @@ export class DocumentGeneration extends BaseAction {
     });
   }
 
+  protected async prompt(): Promise<string> {
+    // Get required parameters
+    const title = this.getArg<string>('title');
+    const type = this.getArg<DocumentType>('type');
+    
+    if (!title) {
+      throw new Error('No document title provided');
+    }
+    
+    if (!type) {
+      throw new Error('No document type provided');
+    }
+
+    // Get optional parameters
+    const format = this.getArg<DocumentFormat>('format') || DocumentFormat.MARKDOWN;
+    const targetAudience = this.getArg<string>('target_audience');
+    const contentSource = this.getArg<DocumentGenerationConfig['content_source']>('content_source') || {};
+    const templateSections = this.getArg<TemplateSection[]>('template_sections');
+    const metadata = this.getArg<Partial<DocumentMetadata>>('metadata') || {};
+    const styleGuide = this.getArg<DocumentGenerationConfig['style_guide']>('style_guide') || {};
+
+    // Generate metadata with defaults
+    const currentDate = new Date().toISOString().split('T')[0];
+    const fullMetadata: DocumentMetadata = {
+      version: '1.0.0',
+      date: currentDate,
+      author: 'MetaGPT Document Generator',
+      project_name: title,
+      ...metadata
+    };
+
+    // Generate table of contents
+    const toc = this.generateTableOfContents({
+      title,
+      type,
+      format,
+      target_audience: targetAudience,
+      content_source: contentSource,
+      template_sections: templateSections,
+      metadata,
+      style_guide: styleGuide
+    });
+
+    // Return the constructed prompt
+    return this.constructDocumentPrompt(
+      {
+        title,
+        type,
+        format,
+        target_audience: targetAudience,
+        content_source: contentSource,
+        template_sections: templateSections,
+        metadata,
+        style_guide: styleGuide
+      },
+      fullMetadata,
+      toc
+    );
+  }
+
   /**
    * Runs the document generation action
    * @returns The document generation result
    */
-  public async run(): Promise<ActionOutput> {
+  public async run(): Promise<StreamActionOutput> {
     try {
       logger.info(`[${this.name}] Running Document Generation action`);
       
@@ -189,9 +249,8 @@ export class DocumentGeneration extends BaseAction {
       );
     } catch (error) {
       logger.error(`[${this.name}] Error in Document Generation action:`, error);
-      await this.handleException(error as Error);
       return this.createOutput(
-        `Failed to generate document: ${error}`,
+        `Failed to generate document: ${error instanceof Error ? error.message : String(error)}`,
         'failed'
       );
     }

@@ -1,5 +1,5 @@
 import { BaseAction } from './base-action';
-import type { ActionConfig, ActionOutput } from '../types/action';
+import type { StreamActionOutput, ActionConfig } from '../types/action';
 import { logger } from '../utils/logger';
 
 /**
@@ -212,7 +212,7 @@ ${evaluation.recommendations.bestPractices.map(p => `- ${p}`).join('\n')}`;
   /**
    * Run the architecture evaluation
    */
-  public async run(): Promise<ActionOutput> {
+  public async run(): Promise<StreamActionOutput> {
     try {
       // Get prompt
       const prompt = await this.prompt();

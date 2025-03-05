@@ -1,5 +1,5 @@
 import { BaseAction } from './base-action';
-import type { ActionConfig, ActionOutput } from '../types/action';
+import type { StreamActionOutput, ActionConfig } from '../types/action';
 import { logger } from '../utils/logger';
 
 /**
@@ -40,77 +40,52 @@ export interface GeneratedCode {
   typeIssues?: string[];
 }
 
+export interface WriteCodeConfig extends ActionConfig {
+  language?: string;
+  framework?: string;
+  style?: string;
+}
+
 /**
  * Action for writing code based on requirements
  */
 export class WriteCodeAction extends BaseAction {
-  constructor(config: ActionConfig) {
+  private language: string;
+  private framework?: string;
+  private style?: string;
+
+  constructor(config: WriteCodeConfig) {
     super({
       ...config,
       name: config.name || 'WriteCode',
       description: config.description || 'Write code based on requirements with quality checks'
     });
+
+    this.language = config.language || 'typescript';
+    this.framework = config.framework;
+    this.style = config.style;
   }
 
   protected async prompt(): Promise<string> {
-    // Get and validate required arguments
     const requirements = this.getArg<string>('requirements');
     if (!requirements) {
       throw new Error('No requirements provided for code generation');
     }
 
-    // Get optional arguments with defaults
-    const language = this.getArg<string>('language') || ProgrammingLanguage.TYPESCRIPT;
-    const context = this.getArg<string>('context') || '';
-    const testRequired = this.getArg<boolean>('testRequired') || false;
-    const documentation = this.getArg<boolean>('documentation') || true;
-    const linting = this.getArg<boolean>('linting') || true;
-    const typeChecking = this.getArg<boolean>('typeChecking') || true;
+    return `As an expert ${this.language} developer${this.framework ? ` with ${this.framework} expertise` : ''}, 
+write code that meets the following requirements:
 
-    // Log code generation start
-    logger.info(`[${this.name}] Starting code generation for ${language}`);
-    logger.debug(`[${this.name}] Configuration:`, {
-      language,
-      testRequired,
-      documentation,
-      linting,
-      typeChecking
-    });
-
-    return `Please write high-quality code based on the following requirements:
-
-Language: ${language}
-
-${context ? `Context:\n${context}\n\n` : ''}
-Requirements:
 ${requirements}
 
-Please provide the implementation in the following JSON format:
+Additional context:
+${this.style ? `- Follow this coding style: ${this.style}` : '- Follow standard coding style and best practices'}
+- Include necessary imports
+- Add clear comments
+- Handle edge cases
+- Include error handling
+- Write testable code
 
-{
-  "code": "The main implementation code",
-  "documentation": ${documentation ? `"Documentation in markdown format"` : "null"},
-  "tests": ${testRequired ? `"Unit tests for the implementation"` : "null"},
-  "lintingNotes": ["Any linting considerations"],
-  "typeNotes": ["Any typing considerations"]
-}
-
-Focus on:
-1. Clean and maintainable code following SOLID principles
-2. Following best practices and conventions for ${language}
-3. Proper error handling and edge cases
-4. Clear and comprehensive documentation
-5. Type safety and null checking
-6. Performance considerations
-7. Security best practices
-
-Additional requirements:
-${documentation ? '- Include JSDoc/documentation comments\n' : ''}
-${testRequired ? '- Include unit tests with good coverage\n' : ''}
-${linting ? '- Follow standard style guidelines\n' : ''}
-${typeChecking ? '- Use strict type checking\n' : ''}
-
-The code should be production-ready and follow modern development practices.`;
+Please provide the complete implementation.`;
   }
 
   /**
@@ -128,7 +103,7 @@ The code should be production-ready and follow modern development practices.`;
 
       return {
         code: result.code,
-        language: this.getArg<string>('language') || ProgrammingLanguage.TYPESCRIPT,
+        language: this.language,
         documentation: result.documentation,
         tests: result.tests,
         lintingIssues: result.lintingNotes,
@@ -168,35 +143,33 @@ ${result.typeIssues?.length ? `## Type Safety Notes\n${result.typeIssues.map(iss
 - [x] Performance considerations`;
   }
 
-  /**
-   * Execute the code writing action
-   * @returns Generated code with documentation and tests
-   */
-  public async run(): Promise<ActionOutput> {
+  public async run(): Promise<StreamActionOutput> {
     try {
-      // Get prompt
-      const prompt = await this.prompt();
+      const requirements = this.getArg<string>('requirements');
+      if (!requirements) {
+        return {
+          content: 'No requirements provided for code generation',
+          status: 'failed'
+        };
+      }
+
+      const response = await this.ask(await this.prompt());
       
-      // Generate code using LLM
-      const response = await this.ask(prompt);
-      
-      // Parse and validate code
-      const result = this.parseCodeResponse(response);
-      
-      // Format as markdown
-      const formattedResult = this.formatCodeResult(result);
-      
-      return this.createOutput(
-        formattedResult,
-        'completed',
-        result
-      );
-    } catch (error) {
-      logger.error(`[${this.name}] Error in code generation:`, error);
-      return this.createOutput(
-        `Failed to generate code: ${error}`,
-        'failed'
-      );
+      return {
+        content: response,
+        status: 'completed',
+        metadata: {
+          language: this.language,
+          framework: this.framework,
+          style: this.style
+        }
+      };
+    } catch (error: unknown) {
+      logger.error('[WriteCode] Error:', error);
+      return {
+        content: `Failed to generate code: ${error instanceof Error ? error.message : String(error)}`,
+        status: 'failed'
+      };
     }
   }
 } 

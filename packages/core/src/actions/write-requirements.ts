@@ -7,7 +7,7 @@
  */
 
 import { BaseAction } from './base-action';
-import type { ActionOutput } from '../types/action';
+import type { StreamActionOutput, ActionConfig } from '../types/action';
 import { logger } from '../utils/logger';
 
 export enum RequirementType {
@@ -70,8 +70,13 @@ export interface WriteRequirementsArgs {
 export class WriteRequirements extends BaseAction {
   protected args: WriteRequirementsArgs;
 
-  constructor(config: any) {
-    super(config);
+  constructor(config: ActionConfig) {
+    super({
+      ...config,
+      name: config.name || 'WriteRequirements',
+      description: config.description || 'Generates detailed requirements documents'
+    });
+    
     this.args = {
       project_name: config.args?.project_name || 'Untitled Project',
       scope_focus: config.args?.scope_focus || [],
@@ -82,48 +87,59 @@ export class WriteRequirements extends BaseAction {
     };
   }
 
-  private generateRequirementId(type: RequirementType, index: number): string {
-    const prefix = type.substring(0, 3).toUpperCase();
-    return `${prefix}-${String(index + 1).padStart(3, '0')}`;
+  protected async prompt(): Promise<string> {
+    // Get messages from args
+    const messages = this.getArg<any[]>('messages') || [];
+    if (!Array.isArray(messages) || messages.length === 0) {
+      throw new Error('No messages available for requirements generation');
+    }
+    
+    return this.preparePrompt(messages);
   }
 
-  public async run(): Promise<ActionOutput> {
+  public async run(): Promise<StreamActionOutput> {
     try {
-      // Check if there are any messages
-      const messages = await this.getMessages();
-      if (messages.length === 0) {
-        logger.warn('No messages available for requirements generation');
-        return {
-          status: 'failed',
-          content: 'No messages available for requirements generation'
-        };
-      }
-
-      // Generate requirements based on messages
-      const prompt = this.preparePrompt(messages);
+      // Generate requirements based on prompt
       let doc: RequirementsDocument;
       
       try {
-        doc = await this.generateRequirements(prompt);
+        const response = await this.ask(await this.prompt());
+        doc = JSON.parse(response);
+        doc = {
+          project_name: doc.project_name || this.args.project_name || 'Untitled Project',
+          version: doc.version || '1.0.0',
+          last_updated: doc.last_updated || new Date().toISOString(),
+          executive_summary: doc.executive_summary || 'Basic project description',
+          scope: {
+            included: doc.scope?.included || [],
+            excluded: doc.scope?.excluded || []
+          },
+          assumptions: doc.assumptions || [],
+          constraints: doc.constraints || [],
+          requirements: (doc.requirements || []).map((req: any, index: number) => ({
+            ...req,
+            id: req.id || this.generateRequirementId(req.type || RequirementType.FUNCTIONAL, index)
+          })),
+          risks: doc.risks || []
+        };
       } catch (error) {
         logger.error('Error generating requirements:', error);
-        doc = this.createFallbackDocument(prompt);
+        doc = this.createFallbackDocument(await this.prompt());
       }
 
       // Format the document
       const formattedDoc = this.formatRequirementsDocument(doc);
 
-      return {
-        status: 'completed',
-        content: formattedDoc
-      };
+      return this.createOutput(formattedDoc, 'completed');
     } catch (error) {
       logger.error('Error in WriteRequirements:', error);
-      return {
-        status: 'failed',
-        content: `Failed to generate requirements: ${error}`
-      };
+      return this.handleException(error as Error);
     }
+  }
+
+  private generateRequirementId(type: RequirementType, index: number): string {
+    const prefix = type.substring(0, 3).toUpperCase();
+    return `${prefix}-${String(index + 1).padStart(3, '0')}`;
   }
 
   private preparePrompt(messages: any[]): string {
@@ -135,33 +151,6 @@ export class WriteRequirements extends BaseAction {
     
     const messageContent = messages.map(m => m.content).join('\n');
     return `Generate requirements document for the following project information:\n\n${messageContent}`;
-  }
-
-  private async generateRequirements(prompt: string): Promise<RequirementsDocument> {
-    if (!this.llm) {
-      throw new Error('LLM not initialized');
-    }
-
-    const response = await this.llm.chat(prompt);
-    const doc = JSON.parse(response);
-
-    return {
-      project_name: doc.project_name || this.args.project_name || 'Untitled Project',
-      version: doc.version || '1.0.0',
-      last_updated: doc.last_updated || new Date().toISOString(),
-      executive_summary: doc.executive_summary || 'Basic project description',
-      scope: {
-        included: doc.scope?.included || [],
-        excluded: doc.scope?.excluded || []
-      },
-      assumptions: doc.assumptions || [],
-      constraints: doc.constraints || [],
-      requirements: (doc.requirements || []).map((req: any, index: number) => ({
-        ...req,
-        id: req.id || this.generateRequirementId(req.type || RequirementType.FUNCTIONAL, index)
-      })),
-      risks: doc.risks || []
-    };
   }
 
   private createFallbackDocument(prompt: string): RequirementsDocument {

@@ -1,5 +1,5 @@
 import { BaseAction } from './base-action';
-import type { ActionOutput, ActionConfig } from '../types/action';
+import type { StreamActionOutput as ActionOutput, ActionConfig } from '../types/action';
 import { logger } from '../utils/logger';
 
 /**

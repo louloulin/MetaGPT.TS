@@ -1,5 +1,5 @@
 import { BaseAction } from './base-action';
-import type { ActionOutput, ActionConfig } from '../types/action';
+import type { StreamActionOutput, ActionConfig } from '../types/action';
 import { logger } from '../utils/logger';
 
 /**
@@ -117,337 +117,101 @@ export interface ConceptExplanation {
   };
 }
 
+export interface ExplainConceptConfig extends ActionConfig {
+  field?: string;
+  level?: 'beginner' | 'intermediate' | 'advanced';
+  format?: 'text' | 'markdown' | 'html';
+  includeExamples?: boolean;
+  includeAnalogies?: boolean;
+}
+
 /**
- * Action for explaining concepts clearly and thoroughly
+ * Action for explaining concepts clearly and comprehensively
  */
 export class ExplainConcept extends BaseAction {
-  constructor(config: ActionConfig) {
+  private field: string;
+  private level: 'beginner' | 'intermediate' | 'advanced';
+  private format: 'text' | 'markdown' | 'html';
+  private includeExamples: boolean;
+  private includeAnalogies: boolean;
+
+  constructor(config: ExplainConceptConfig) {
     super({
       ...config,
       name: config.name || 'ExplainConcept',
-      description: config.description || 'Explain concepts clearly and thoroughly'
+      description: config.description || 'Explain concepts clearly and comprehensively'
     });
+
+    this.field = config.field || 'general';
+    this.level = config.level || 'intermediate';
+    this.format = config.format || 'markdown';
+    this.includeExamples = config.includeExamples ?? true;
+    this.includeAnalogies = config.includeAnalogies ?? true;
   }
 
   protected async prompt(): Promise<string> {
-    // Get and validate required arguments
     const concept = this.getArg<string>('concept');
+    const context = this.getArg<string>('context') || '';
+    const priorKnowledge = this.getArg<string[]>('priorKnowledge') || [];
+
     if (!concept) {
-      throw new Error('Concept is required for explanation');
+      throw new Error('No concept provided for explanation');
     }
 
-    // Get optional arguments with defaults
-    const level = this.getArg<ExplanationLevel>('level') || ExplanationLevel.INTERMEDIATE;
-    const style = this.getArg<LearningStyle>('style') || LearningStyle.READING;
-    const context = this.getArg<string>('context') || '';
-    const focus = this.getArg<string[]>('focus') || [];
-    const includeExercises = this.getArg<boolean>('includeExercises') || true;
-
-    // Log explanation start
-    logger.info(`[${this.name}] Starting concept explanation`);
-    logger.debug(`[${this.name}] Configuration:`, {
-      level,
-      style,
-      hasContext: !!context,
-      focusAreas: focus,
-      includeExercises
-    });
-
-    return `As an educational expert, please explain the following concept comprehensively:
+    return `As an expert in ${this.field}, explain the following concept at a ${this.level} level:
 
 Concept: ${concept}
 
-${context ? `Context:
-${context}
+${context ? `Context:\n${context}\n\n` : ''}
+${priorKnowledge.length ? `Assumed Prior Knowledge:\n${priorKnowledge.map(k => `- ${k}`).join('\n')}\n\n` : ''}
 
-` : ''}${focus.length ? `Focus Areas:
-${focus.join('\n')}
+Please provide a comprehensive explanation including:
+1. Clear definition
+2. Key points and principles
+${this.includeExamples ? '3. Practical examples and use cases' : ''}
+${this.includeAnalogies ? '4. Helpful analogies and comparisons' : ''}
+5. Common misconceptions
+6. Related concepts
+7. Further reading suggestions
 
-` : ''}Configuration:
-- Difficulty Level: ${level}
-- Learning Style: ${style}
-- Include Exercises: ${includeExercises}
-
-Please provide the explanation in the following JSON format:
-
-{
-  "overview": {
-    "concept": "Concept name",
-    "shortDefinition": "One-sentence definition",
-    "level": "${Object.values(ExplanationLevel).join('" | "')}",
-    "targetAudience": ["Intended audience"],
-    "prerequisites": ["Required knowledge"]
-  },
-  "coreConcepts": {
-    "definition": "Detailed definition",
-    "keyPoints": ["Key points to understand"],
-    "commonMisconceptions": ["Common misconceptions"]
-  },
-  "explanation": {
-    "mainContent": "Main explanation text",
-    "sections": [
-      {
-        "title": "Section title",
-        "content": "Section content",
-        "importance": "high | medium | low"
-      }
-    ],
-    "visualAids": [
-      {
-        "type": "diagram | flowchart | mindmap | comparison",
-        "description": "Visual aid description",
-        "elements": [
-          {
-            "id": "Element ID",
-            "label": "Element label",
-            "details": "Element details",
-            "connections": ["Connected element IDs"]
-          }
-        ]
-      }
-    ]
-  },
-  "examples": [
-    {
-      "context": "Example context",
-      "code": "Example code if applicable",
-      "explanation": "Example explanation",
-      "keyPoints": ["Key points from example"]
-    }
-  ],
-  "practice": {
-    "exercises": [
-      {
-        "id": "Exercise ID",
-        "type": "multiple_choice | coding | open_ended",
-        "question": "Exercise question",
-        "difficulty": "${Object.values(ExplanationLevel).join('" | "')}",
-        "hints": ["Exercise hints"],
-        "solution": "Exercise solution",
-        "explanation": "Solution explanation"
-      }
-    ],
-    "projects": [
-      {
-        "title": "Project title",
-        "description": "Project description",
-        "steps": ["Project steps"],
-        "learningOutcomes": ["Expected outcomes"]
-      }
-    ]
-  },
-  "connections": {
-    "relatedConcepts": [
-      {
-        "name": "Related concept name",
-        "relationship": "prerequisite | similar | advanced | alternative",
-        "description": "Relationship description",
-        "importance": "essential | helpful | optional"
-      }
-    ],
-    "realWorldApplications": ["Real-world applications"],
-    "industryUsage": ["Industry usage examples"]
-  },
-  "resources": {
-    "documentation": ["Documentation links"],
-    "tutorials": ["Tutorial links"],
-    "books": ["Book recommendations"],
-    "communities": ["Community resources"]
-  }
-}
-
-Please ensure:
-1. The explanation matches the specified difficulty level
-2. Examples are practical and relevant
-3. Visual aids are clear and helpful
-4. Exercises reinforce key concepts
-5. Resources are current and valuable`;
+Focus on:
+- Clear and concise explanations
+- Logical flow of ideas
+- Real-world relevance
+- Common pitfalls to avoid
+- Building on prior knowledge
+- Progressive complexity`;
   }
 
-  /**
-   * Parse and validate the concept explanation
-   * @param response The LLM response
-   * @returns Parsed concept explanation
-   */
-  private parseConceptExplanation(response: string): ConceptExplanation {
+  public async run(): Promise<StreamActionOutput> {
     try {
-      const result = JSON.parse(response);
-      
-      // Validate required sections
-      if (!result.overview || !result.coreConcepts || !result.explanation || 
-          !result.examples || !result.practice || !result.connections || 
-          !result.resources) {
-        throw new Error('Missing required sections in concept explanation');
+      const concept = this.getArg<string>('concept');
+      if (!concept) {
+        return {
+          content: 'No concept provided for explanation',
+          status: 'failed'
+        };
       }
 
-      // Validate overview
-      if (!result.overview.concept || !result.overview.shortDefinition || 
-          !result.overview.level || !result.overview.targetAudience || 
-          !result.overview.prerequisites) {
-        throw new Error('Missing required fields in overview');
-      }
-
-      return result;
-    } catch (error) {
-      logger.error(`[${this.name}] Failed to parse concept explanation:`, error);
-      throw new Error(`Failed to parse concept explanation: ${error}`);
-    }
-  }
-
-  /**
-   * Format the concept explanation as markdown
-   * @param explanation The concept explanation
-   * @returns Formatted markdown string
-   */
-  private formatConceptExplanation(explanation: ConceptExplanation): string {
-    return `# ${explanation.overview.concept}
-
-## Overview
-${explanation.overview.shortDefinition}
-
-**Level:** ${explanation.overview.level}  
-**Target Audience:** ${explanation.overview.targetAudience.join(', ')}
-
-### Prerequisites
-${explanation.overview.prerequisites.map(prereq => `- ${prereq}`).join('\n')}
-
-## Core Concepts
-${explanation.coreConcepts.definition}
-
-### Key Points
-${explanation.coreConcepts.keyPoints.map(point => `- ${point}`).join('\n')}
-
-### Common Misconceptions
-${explanation.coreConcepts.commonMisconceptions.map(misconception => `- ${misconception}`).join('\n')}
-
-## Detailed Explanation
-${explanation.explanation.mainContent}
-
-${explanation.explanation.sections.map(section => `
-### ${section.title}
-> Importance: ${section.importance}
-
-${section.content}`).join('\n')}
-
-## Visual Aids
-${explanation.explanation.visualAids.map(aid => `
-### ${aid.type.charAt(0).toUpperCase() + aid.type.slice(1)}
-${aid.description}
-
-Elements:
-${aid.elements.map(element => `- **${element.label}**: ${element.details || ''}${element.connections?.length ? `\n  Connected to: ${element.connections.join(', ')}` : ''}`).join('\n')}`).join('\n')}
-
-## Examples
-${explanation.examples.map(example => `
-### Example: ${example.context}
-${example.code ? `
-\`\`\`
-${example.code}
-\`\`\`
-` : ''}
-${example.explanation}
-
-**Key Points:**
-${example.keyPoints.map(point => `- ${point}`).join('\n')}`).join('\n')}
-
-## Practice
-
-### Exercises
-${explanation.practice.exercises.map(exercise => `
-#### ${exercise.id}: ${exercise.type.toUpperCase()}
-${exercise.question}
-
-**Difficulty:** ${exercise.difficulty}
-
-${exercise.hints?.length ? `**Hints:**
-${exercise.hints.map(hint => `- ${hint}`).join('\n')}` : ''}
-
-${exercise.solution ? `<details>
-<summary>Solution</summary>
-
-${exercise.solution}
-
-${exercise.explanation ? `**Explanation:**
-${exercise.explanation}` : ''}
-</details>` : ''}`).join('\n')}
-
-### Projects
-${explanation.practice.projects.map(project => `
-#### ${project.title}
-${project.description}
-
-**Steps:**
-${project.steps.map((step, index) => `${index + 1}. ${step}`).join('\n')}
-
-**Learning Outcomes:**
-${project.learningOutcomes.map(outcome => `- ${outcome}`).join('\n')}`).join('\n')}
-
-## Connections
-
-### Related Concepts
-${explanation.connections.relatedConcepts.map(concept => `
-#### ${concept.name} (${concept.importance})
-- **Relationship:** ${concept.relationship}
-- **Description:** ${concept.description}`).join('\n')}
-
-### Real-world Applications
-${explanation.connections.realWorldApplications.map(app => `- ${app}`).join('\n')}
-
-### Industry Usage
-${explanation.connections.industryUsage.map(usage => `- ${usage}`).join('\n')}
-
-## Additional Resources
-
-### Documentation
-${explanation.resources.documentation.map(doc => `- ${doc}`).join('\n')}
-
-### Tutorials
-${explanation.resources.tutorials.map(tutorial => `- ${tutorial}`).join('\n')}
-
-### Books
-${explanation.resources.books.map(book => `- ${book}`).join('\n')}
-
-### Communities
-${explanation.resources.communities.map(community => `- ${community}`).join('\n')}
-
-## Learning Progress Checklist
-- [ ] Understand core concepts
-- [ ] Review examples
-- [ ] Complete exercises
-- [ ] Explore real-world applications
-- [ ] Connect with related concepts
-- [ ] Access additional resources`;
-  }
-
-  /**
-   * Execute the concept explanation action
-   * @returns Explanation with detailed breakdown
-   */
-  public async run(): Promise<ActionOutput> {
-    try {
-      // Get prompt
-      const prompt = await this.prompt();
+      const response = await this.ask(await this.prompt());
       
-      // Generate explanation using LLM
-      const response = await this.ask(prompt);
-      
-      // Parse and validate explanation
-      const result = this.parseConceptExplanation(response);
-      
-      // Format as markdown
-      const formattedResult = this.formatConceptExplanation(result);
-      
-      return this.createOutput(
-        formattedResult,
-        'completed',
-        result
-      );
-    } catch (error) {
-      logger.error(`[${this.name}] Error in concept explanation:`, error);
-      return this.createOutput(
-        `Failed to explain concept: ${error}`,
-        'failed'
-      );
+      return {
+        content: response,
+        status: 'completed',
+        metadata: {
+          field: this.field,
+          level: this.level,
+          format: this.format,
+          includeExamples: this.includeExamples,
+          includeAnalogies: this.includeAnalogies
+        }
+      };
+    } catch (error: unknown) {
+      logger.error('[ExplainConcept] Error:', error);
+      return {
+        content: `Failed to explain concept: ${error instanceof Error ? error.message : String(error)}`,
+        status: 'failed'
+      };
     }
   }
 } 

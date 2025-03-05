@@ -162,6 +162,17 @@ export class ProjectManagement extends BaseAction {
     logger.debug(`ProjectManagement initialized with ${this.nodes.length} nodes`);
   }
 
+  protected async prompt(): Promise<string> {
+    const context = this.context?.args?.context?.toString() || '';
+    const node = this.getArg<ActionNode>('currentNode');
+    
+    if (!node) {
+      throw new Error('No node provided for prompt generation');
+    }
+
+    return `${node.key}\n\n${node.instruction}\n\nContext:\n${context}\n\nProvide your response in the expected format. For reference, here's an example: ${JSON.stringify(node.example)}`;
+  }
+
   /**
    * Runs the project management action
    * 
@@ -205,11 +216,11 @@ export class ProjectManagement extends BaseAction {
     logger.debug(`Executing node: ${node.key}`);
     
     try {
-      // Create a prompt that includes the node key - this is important for MockLLM in tests
-      const prompt = `${node.key}\n\n${node.instruction}\n\nContext:\n${context}\n\nProvide your response in the expected format. For reference, here's an example: ${JSON.stringify(node.example)}`;
+      // Set the current node as an argument for the prompt method
+      this.setArg('currentNode', node);
       
-      // Get response from LLM
-      const content = await this.llm.generate(prompt);
+      // Use ask method from BaseAction instead of direct llm access
+      const content = await this.ask(await this.prompt());
       
       // Only attempt to parse JSON if the content might be JSON
       if (typeof content === 'string') {

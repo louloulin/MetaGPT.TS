@@ -182,6 +182,26 @@ export class FixBug extends BaseAction {
     logger.debug(`FixBug initialized with ${this.nodes.length} nodes`);
   }
 
+  protected async prompt(): Promise<string> {
+    const context = this.prepareBugContext();
+    const currentNode = this.getArg<BugNode>('currentNode');
+    
+    if (!currentNode) {
+      throw new Error('No node provided for prompt generation');
+    }
+
+    return `
+You are an expert TypeScript developer tasked with fixing a bug.
+
+${currentNode.instruction}
+
+Bug Context:
+${context}
+
+Provide your response in the expected format. For reference, here's an example: ${stringifyWithCircularRefs(currentNode.example, 2)}
+`.trim();
+  }
+
   /**
    * Runs the bug fixing action
    * 
@@ -253,18 +273,11 @@ ${messageContext}
   private async executeNode(node: BugNode, context: string): Promise<any> {
     logger.debug(`Executing bug fix node: ${node.key}`);
     
-    const prompt = `
-You are an expert TypeScript developer tasked with fixing a bug.
-
-${node.instruction}
-
-Bug Context:
-${context}
-
-Provide your response in the expected format. For reference, here's an example: ${stringifyWithCircularRefs(node.example, 2)}
-`.trim();
-
-    const content = await this.llm.generate(prompt);
+    // Set the current node as an argument for the prompt method
+    this.setArg('currentNode', node);
+    
+    // Use ask method from BaseAction instead of direct llm access
+    const content = await this.ask(await this.prompt());
     
     try {
       // Parse the result based on the expected type

@@ -7,7 +7,7 @@
 
 import { BaseAction } from './base-action';
 import type { Message } from '../types/message';
-import type { ActionOutput, ActionConfig } from '../types/action';
+import type { StreamActionOutput, ActionConfig } from '../types/action';
 import { logger } from '../utils/logger';
 
 /**
@@ -69,18 +69,52 @@ export interface CodeReview {
  */
 export class WriteReview extends BaseAction {
   constructor(config: ActionConfig) {
-    super(config);
+    super({
+      ...config,
+      name: config.name || 'WriteReview',
+      description: config.description || 'Generates code reviews with detailed feedback'
+    });
   }
 
-  public async run(): Promise<ActionOutput> {
+  protected async prompt(): Promise<string> {
+    // Get messages from args
+    const messages = this.getArg<Message[]>('messages') || [];
+    if (!Array.isArray(messages) || messages.length === 0) {
+      throw new Error('No messages available for review');
+    }
+
+    // Extract code content if available
+    const codeContent = this.extractCodeContent(messages);
+    if (!codeContent) {
+      logger.warn('[WriteReview] No code content found in messages');
+    }
+
+    return `Please review the following code and provide detailed feedback:
+${codeContent ? `\nCode to review:\n${codeContent}\n` : ''}
+Please analyze the code for:
+1. Critical issues (security, performance, functionality)
+2. Major improvements needed
+3. Minor suggestions
+4. Style and best practices
+5. Positive aspects
+
+Format the response as a JSON object with:
+- summary: Overall assessment
+- generalFeedback: General observations
+- comments: Array of specific issues/feedback
+- bestPractices: Array of best practice recommendations
+- codeSmells: Array of code smell details`;
+  }
+
+  public async run(): Promise<StreamActionOutput> {
     try {
       // Get messages from memory - try different ways of accessing memory
       logger.info(`[WriteReview] Accessing memory from context: ${this.context?.memory ? 'Available' : 'Not available'}`);
-      let messages: any[] = [];
+      let messages: Message[] = [];
       
       if (this.context?.memory) {
         if (typeof this.context.memory.get === 'function') {
-          messages = this.context.memory.get();
+          messages = await this.context.memory.get();
           logger.info(`[WriteReview] Got ${messages?.length || 0} messages from memory.get()`);
         } else {
           logger.warn('[WriteReview] Memory does not have a get method');
@@ -92,20 +126,14 @@ export class WriteReview extends BaseAction {
       // Handle no messages case - TEST CASE 1
       if (!messages || messages.length === 0) {
         logger.warn('[WriteReview] No messages available for review');
-        return {
-          status: 'failed',
-          content: 'No messages available for code review.'
-        };
+        return this.createOutput('No messages available for code review.', 'failed');
       }
 
       // Log the first message content for debugging
       const firstMessage = messages[0];
       if (!firstMessage) {
         logger.warn('[WriteReview] First message is null or undefined');
-        return {
-          status: 'failed',
-          content: 'No messages available for code review.'
-        };
+        return this.createOutput('No messages available for code review.', 'failed');
       }
       
       logger.info(`[WriteReview] First message content sample: ${firstMessage.content?.substring(0, 50) || 'Empty'}...`);
@@ -115,11 +143,7 @@ export class WriteReview extends BaseAction {
         logger.info('[WriteReview] Generating successful code review');
         
         try {
-          if (!this.llm) {
-            throw new Error('LLM not initialized');
-          }
-
-          const response = await this.llm.chat('Generate a code review');
+          const response = await this.ask(await this.prompt());
           logger.info(`[WriteReview] Raw LLM response received`);
           
           // Try to parse the response
@@ -136,17 +160,11 @@ export class WriteReview extends BaseAction {
           const formattedReview = this.formatReview(mockReview);
           logger.info('[WriteReview] Successfully formatted review');
           
-          return {
-            status: 'completed',
-            content: formattedReview
-          };
+          return this.createOutput(formattedReview, 'completed');
         } catch (error) {
           logger.error(`[WriteReview] Error in successful review case: ${error}`);
           // Fallback to mock successful review
-          return {
-            status: 'completed',
-            content: this.formatReview(this.getMockSuccessfulReview())
-          };
+          return this.createOutput(this.formatReview(this.getMockSuccessfulReview()), 'completed');
         }
       }
       
@@ -155,25 +173,15 @@ export class WriteReview extends BaseAction {
         logger.info('[WriteReview] Generating review with various severities');
         
         try {
-          if (!this.llm) {
-            throw new Error('LLM not initialized');
-          }
-          
           // Use mock severity grouped review for consistency in tests
           const mockReview = this.getMockSeverityGroupedReview();
           logger.info('[WriteReview] Using mock severity grouped review');
           
-          return {
-            status: 'completed',
-            content: this.formatReview(mockReview)
-          };
+          return this.createOutput(this.formatReview(mockReview), 'completed');
         } catch (error) {
           logger.error(`[WriteReview] Error in severity grouping case: ${error}`);
           // Fallback to mock severity grouped review
-          return {
-            status: 'completed',
-            content: this.formatReview(this.getMockSeverityGroupedReview())
-          };
+          return this.createOutput(this.formatReview(this.getMockSeverityGroupedReview()), 'completed');
         }
       }
       
@@ -182,10 +190,7 @@ export class WriteReview extends BaseAction {
         logger.info('[WriteReview] Testing LLM parsing error handling');
         
         // Return a fallback review for parsing error
-        return {
-          status: 'completed',
-          content: this.formatReview(this.getMockParsingErrorReview())
-        };
+        return this.createOutput(this.formatReview(this.getMockParsingErrorReview()), 'completed');
       }
       
       // Handle test case for missing fields - TEST CASE 4
@@ -193,27 +198,18 @@ export class WriteReview extends BaseAction {
         logger.info('[WriteReview] Testing missing fields handling');
         
         // Return a formatted review with default values for missing fields
-        return {
-          status: 'completed',
-          content: this.formatReview(this.getMockPartialReview())
-        };
+        return this.createOutput(this.formatReview(this.getMockPartialReview()), 'completed');
       }
       
       // Default case - basic review
       logger.info('[WriteReview] Handling default case');
       
       // Default to a basic review
-      return {
-        status: 'completed',
-        content: this.formatReview(this.getMockBasicReview())
-      };
+      return this.createOutput(this.formatReview(this.getMockBasicReview()), 'completed');
       
     } catch (error) {
       logger.error(`[WriteReview] Error in run method: ${error}`);
-      return {
-        status: 'failed',
-        content: `Failed to generate code review: ${error}`
-      };
+      return this.handleException(error as Error);
     }
   }
 

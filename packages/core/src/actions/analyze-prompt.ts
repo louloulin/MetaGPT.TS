@@ -6,7 +6,7 @@
  */
 
 import { BaseAction } from './base-action';
-import type { ActionOutput } from '../types/action';
+import type { StreamActionOutput } from '../types/action';
 import type { LLMProvider } from '../types/llm';
 import { logger } from '../utils/logger';
 
@@ -42,7 +42,12 @@ export class AnalyzePrompt extends BaseAction {
   }
 
   protected async prompt(): Promise<string> {
-    const messages = await this.context.memory.getMessages();
+    const memory = this.context.memory;
+    if (!memory) {
+      throw new Error('Memory not initialized');
+    }
+    
+    const messages = await memory.getMessages();
     if (!messages || messages.length === 0) {
       throw new Error('No messages available for analysis');
     }
@@ -103,12 +108,20 @@ Provide your analysis in a structured JSON format matching the PromptAnalysis in
     };
   }
 
-  public async run(): Promise<ActionOutput> {
-    const messages = await this.context.memory.getMessages();
+  public async run(): Promise<StreamActionOutput> {
+    const memory = this.context.memory;
+    if (!memory) {
+      return {
+        content: 'Memory not initialized',
+        status: 'failed'
+      };
+    }
+
+    const messages = await memory.getMessages();
     if (!messages || messages.length === 0) {
       return {
-        status: 'failed',
-        content: 'No messages available for analysis'
+        content: 'No messages available for analysis',
+        status: 'failed'
       };
     }
 

@@ -7,7 +7,7 @@
  */
 
 import { BaseAction } from './base-action';
-import type { ActionOutput, ActionConfig } from '../types/action';
+import type { StreamActionOutput, ActionConfig } from '../types/action';
 import { logger } from '../utils/logger';
 
 /**
@@ -108,11 +108,31 @@ export class ComplexReasoning extends BaseAction {
     });
   }
 
+  protected async prompt(): Promise<string> {
+    // Get the problem and configuration
+    const problem = this.getArg<string>('problem');
+    if (!problem) {
+      throw new Error('No problem statement provided for reasoning');
+    }
+
+    const config: ReasoningConfig = {
+      problem,
+      context: this.getArg<string>('context'),
+      max_steps: this.getArg<number>('max_steps') || 10,
+      reasoning_methods: this.getArg<ReasoningMethod[]>('reasoning_methods') || Object.values(ReasoningMethod),
+      required_confidence: this.getArg<number>('required_confidence') || 0.7,
+      domain_specific_knowledge: this.getArg<string>('domain_specific_knowledge'),
+      time_constraints: this.getArg<string>('time_constraints')
+    };
+
+    return this.constructReasoningPrompt(config);
+  }
+
   /**
    * Runs the ComplexReasoning action
    * @returns The reasoning results
    */
-  public async run(): Promise<ActionOutput> {
+  public async run(): Promise<StreamActionOutput> {
     try {
       logger.info(`[${this.name}] Running ComplexReasoning action`);
       
@@ -158,9 +178,8 @@ export class ComplexReasoning extends BaseAction {
       );
     } catch (error) {
       logger.error(`[${this.name}] Error in ComplexReasoning action:`, error);
-      await this.handleException(error as Error);
       return this.createOutput(
-        `Failed to perform complex reasoning: ${error}`,
+        `Failed to perform complex reasoning: ${error instanceof Error ? error.message : String(error)}`,
         'failed'
       );
     }

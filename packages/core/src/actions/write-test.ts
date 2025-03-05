@@ -1,5 +1,5 @@
 import { BaseAction } from './base-action';
-import type { ActionConfig, ActionOutput } from '../types/action';
+import type { ActionConfig, StreamActionOutput } from '../types/action';
 import { logger } from '../utils/logger';
 import { ProgrammingLanguage } from './write-code';
 
@@ -240,7 +240,7 @@ Using ${framework} with ${language}
    * Execute the test writing action
    * @returns Generated tests with coverage information
    */
-  public async run(): Promise<ActionOutput> {
+  public async run(): Promise<StreamActionOutput> {
     try {
       // Get prompt
       const prompt = await this.prompt();

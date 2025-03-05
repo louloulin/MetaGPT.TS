@@ -7,7 +7,7 @@
  */
 
 import { BaseAction } from './base-action';
-import type { ActionOutput } from '../types/action';
+import type { StreamActionOutput, ActionConfig } from '../types/action';
 import { logger } from '../utils/logger';
 
 export enum ReportType {
@@ -83,8 +83,17 @@ export interface WriteReportArgs {
 export class WriteReport extends BaseAction {
   protected args: WriteReportArgs;
 
-  constructor(config: any) {
-    super(config);
+  constructor(config: { 
+    name?: string;
+    llm: any;
+    args?: WriteReportArgs;
+    memory?: any;
+  }) {
+    super({
+      ...config,
+      name: config.name || 'WriteReport',
+      description: 'Generate detailed reports with analysis and recommendations'
+    });
     this.args = {
       report_type: config.args?.report_type || ReportType.PROJECT_STATUS,
       format: config.args?.format || ReportFormat.DETAILED,
@@ -96,138 +105,86 @@ export class WriteReport extends BaseAction {
     };
   }
 
-  public async run(): Promise<ActionOutput> {
+  protected async prompt(): Promise<string> {
+    const messages = await this.context?.memory?.getMessages();
+    if (!messages || messages.length === 0) {
+      throw new Error('No messages available for report generation');
+    }
+
+    // Extract relevant information from messages
+    const messageContent = messages.map(m => m.content).join('\n');
+    return `Generate a ${this.args.format} report of type ${this.args.report_type}.
+
+The report should be:
+1. Well-structured and comprehensive
+2. Include relevant metrics and data points
+3. Provide clear conclusions and recommendations
+4. Follow the specified format and type
+
+Base the report on the following information:
+
+${messageContent}
+
+Provide your report in a structured JSON format with the following fields:
+- title: Report title
+- type: Report type (${this.args.report_type})
+- format: Report format (${this.args.format})
+- executive_summary: Brief overview
+- date: Current date
+- author: Report author
+- sections: Array of report sections
+- conclusions: Key findings
+- recommendations: Suggested actions
+- metrics: Key performance indicators`;
+  }
+
+  public async run(): Promise<StreamActionOutput> {
     try {
-      // Check if there are any messages
-      const messages = await this.context.memory.getMessages();
-      console.log('Messages from memory:', messages);
-      if (!messages || messages.length === 0) {
-        return {
-          status: 'failed',
-          content: 'No messages available for report generation'
-        };
-      }
+      // Get prompt and generate report
+      const prompt = await this.prompt();
+      logger.debug('[WriteReport] Generated prompt for report');
 
-      // Check if LLM is initialized
-      if (!this.llm) {
-        console.error('LLM not initialized');
-        return {
-          status: 'failed',
-          content: 'LLM not initialized for report generation'
-        };
-      }
-
-      // Generate report based on messages
-      const prompt = this.preparePrompt(messages);
-      console.log('Prepared prompt:', prompt);
       let report: Report;
-      
       try {
-        console.log('LLM instance:', this.llm);
-        report = await this.generateReport(prompt);
-        console.log('Generated report:', report);
+        const response = await this.ask(prompt);
+        logger.debug('[WriteReport] Received LLM response');
+        
+        // Try to parse the response as JSON
+        try {
+          report = JSON.parse(response);
+          logger.debug('[WriteReport] Successfully parsed response as JSON');
+        } catch (e) {
+          logger.warn('[WriteReport] Failed to parse response as JSON:', e);
+          // Fall back to treating the response as plain text
+          report = this.createFallbackReport(prompt, response);
+        }
       } catch (error) {
-        console.error('Error generating report:', error);
-        logger.error('Error generating report:', error);
+        logger.error('[WriteReport] Error generating report:', error);
         report = this.createFallbackReport(prompt);
-        console.log('Fallback report:', report);
       }
 
       // Format the report
       const formattedReport = this.formatReport(report);
-      console.log('Formatted report:', formattedReport);
-
-      return {
-        status: 'completed',
-        content: formattedReport
-      };
+      return this.createOutput(formattedReport, 'completed', report);
     } catch (error) {
-      console.error('Error in WriteReport:', error);
-      logger.error('Error in WriteReport:', error);
-      return {
-        status: 'failed',
-        content: `Failed to generate report: ${error}`
-      };
+      logger.error('[WriteReport] Error in report generation:', error);
+      return this.handleException(error as Error);
     }
   }
 
-  private preparePrompt(messages: any[]): string {
-    // Extract relevant information from messages
-    const messageContent = messages.map(m => m.content).join('\n');
-    return `Generate a ${this.args.format} report of type ${this.args.report_type} based on the following information:\n\n${messageContent}`;
-  }
-
-  private async generateReport(prompt: string): Promise<Report> {
-    if (!this.llm) {
-      throw new Error('LLM not initialized');
-    }
-
-    try {
-      const response = await this.llm.chat(prompt);
-      console.log('LLM response:', response);
-      
-      // Try to parse the response as JSON
-      let report: Partial<Report>;
-      try {
-        report = JSON.parse(response);
-        console.log('Parsed report:', report);
-      } catch (e) {
-        console.warn(`Failed to parse LLM response as JSON: ${e}`);
-        logger.warn(`Failed to parse LLM response as JSON: ${e}`);
-        // Fall back to treating the response as plain text and create a simple report
-        return {
-          title: `Report: ${new Date().toISOString()}`,
-          type: this.args.report_type || ReportType.PROJECT_STATUS,
-          format: this.args.format || ReportFormat.DETAILED,
-          executive_summary: `Generated based on prompt: ${prompt.substring(0, 100)}...`,
-          date: new Date().toISOString(),
-          author: this.args.author || 'System Generated',
-          sections: [{
-            title: 'Content',
-            content: response || 'No content generated',
-          }],
-          conclusions: ['Report was generated as plain text as structured data was not available'],
-          recommendations: ['Consider refining the prompt for more structured output'],
-          metrics: []
-        };
-      }
-
-      // If we get here, we have a valid JSON object, but it might be missing fields
-      return {
-        title: report.title || 'Generated Report',
-        type: report.type || this.args.report_type || ReportType.PROJECT_STATUS,
-        format: report.format || this.args.format || ReportFormat.DETAILED,
-        executive_summary: report.executive_summary || 'No summary provided',
-        date: report.date || new Date().toISOString(),
-        author: report.author || this.args.author || 'System Generated',
-        sections: report.sections || [{
-          title: 'Overview',
-          content: 'Limited information available from generated report',
-        }],
-        conclusions: report.conclusions || [],
-        recommendations: report.recommendations || [],
-        metrics: report.metrics || []
-      };
-    } catch (error) {
-      console.error('Error generating report:', error);
-      logger.error('Error generating report:', error);
-      throw error;
-    }
-  }
-
-  private createFallbackReport(prompt: string): Report {
+  private createFallbackReport(prompt: string, content?: string): Report {
     return {
       title: 'Basic Report',
       type: this.args.report_type || ReportType.PROJECT_STATUS,
       format: this.args.format || ReportFormat.DETAILED,
-      executive_summary: `Generated based on available information. Basic report for: ${prompt}`,
+      executive_summary: content ? 'Report generated from unstructured content' : 'Basic report due to generation error',
       date: new Date().toISOString(),
       author: this.args.author || 'System Generated',
       sections: [{
-        title: 'Overview',
-        content: 'This is a basic report generated due to an error in the report generation process.',
+        title: 'Content',
+        content: content || 'Error occurred during report generation',
         key_points: [
-          'Report generation encountered an error',
+          'Report generation encountered an issue',
           'Basic information is provided'
         ]
       }],

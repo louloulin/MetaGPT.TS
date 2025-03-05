@@ -6,7 +6,7 @@
  */
 
 import { BaseAction } from './base-action';
-import type { ActionOutput } from '../types/action';
+import type { StreamActionOutput, ActionConfig } from '../types/action';
 import { logger } from '../utils/logger';
 import { parseJsonWithZod } from '../utils/common';
 import { z } from 'zod';
@@ -104,32 +104,21 @@ export class WriteDirectory extends BaseAction {
     language?: string;
     memory?: any;
   }) {
-    const messages: any[] = [];
     super({
+      ...config,
       name: config.name || 'WriteDirectory',
-      llm: config.llm,
-      memory: config.memory || {
-        getMessages: () => messages,
-        add: (msg: any) => { messages.push(msg); },
-        get: () => messages,
-        clear: () => { messages.length = 0; }
-      }
+      description: 'Generate a well-structured directory for a tutorial'
     });
     this.language = config.language || 'Chinese';
   }
 
-  public async run(): Promise<ActionOutput> {
+  protected async prompt(): Promise<string> {
     const topic = this.getArg<string>('topic');
     if (!topic) {
-      return {
-        status: 'failed',
-        content: 'Topic argument is required'
-      };
+      throw new Error('Topic argument is required');
     }
 
-    logger.debug('[WriteDirectory] Generating directory for:', topic);
-
-    const systemPrompt = `You are an expert technical writer. Create a well-structured directory for a tutorial on the given topic.
+    return `You are an expert technical writer. Create a well-structured directory for a tutorial on the given topic.
 The directory should be:
 1. Clear and logical
 2. Well-organized with main sections and subsections
@@ -149,17 +138,27 @@ Provide your directory in a structured JSON format matching the following schema
       ]
     }
   ]
-}`;
+}
+
+Topic: ${topic}`;
+  }
+
+  public async run(): Promise<StreamActionOutput> {
+    const topic = this.getArg<string>('topic');
+    if (!topic) {
+      return this.createOutput('Topic argument is required', 'failed');
+    }
+
+    logger.debug('[WriteDirectory] Generating directory for:', topic);
 
     try {
-      const directoryResponse = await this.llm.chat(systemPrompt + "\n\nTopic: " + topic);
+      const directoryResponse = await this.ask(await this.prompt());
       console.log(directoryResponse);
       
-      // 使用Zod验证解析JSON
+      // Parse JSON with Zod validation
       const directory = parseJsonWithZod<Directory>(
         directoryResponse, 
         DirectorySchema,
-        // 提供默认值，避免解析失败时抛出错误
         {
           title: topic,
           sections: [
@@ -176,17 +175,10 @@ Provide your directory in a structured JSON format matching the following schema
         }
       );
 
-      return {
-        status: 'completed',
-        content: 'Directory structure generated successfully',
-        instructContent: directory
-      };
+      return this.createOutput('Directory structure generated successfully', 'completed', directory);
     } catch (error) {
       logger.error('[WriteDirectory] Error generating directory:', error);
-      return {
-        status: 'failed',
-        content: `Error generating directory: ${error}`
-      };
+      return this.handleException(error as Error);
     }
   }
 }
@@ -202,70 +194,56 @@ export class WriteContent extends BaseAction {
     directory: Directory;
     memory?: any;
   }) {
-    const messages: any[] = [];
     super({
+      ...config,
       name: config.name || 'WriteContent',
-      llm: config.llm,
-      memory: config.memory || {
-        getMessages: () => messages,
-        add: (msg: any) => { messages.push(msg); },
-        get: () => messages,
-        clear: () => { messages.length = 0; }
-      }
+      description: 'Generate detailed content for tutorial sections'
     });
     this.language = config.language || 'Chinese';
     this.directory = config.directory;
   }
 
-  public async run(): Promise<ActionOutput> {
+  protected async prompt(): Promise<string> {
     const topic = this.getArg<string>('topic');
     if (!topic) {
-      return {
-        status: 'failed',
-        content: 'Topic argument is required'
-      };
+      throw new Error('Topic argument is required');
     }
 
-    logger.debug('[WriteContent] Generating content for:', topic);
+    const section = this.directory.sections[0];
+    if (!section) {
+      throw new Error('No sections found in directory');
+    }
 
-    const systemPrompt = `You are an expert technical writer. Create detailed content for the given section of the tutorial.
+    return `You are an expert technical writer. Create detailed content for the given section of the tutorial.
 The content should be:
 1. Clear and comprehensive
 2. Include examples where appropriate
 3. Follow Markdown syntax
 4. Match the section structure provided
 
-Write the content in ${this.language} language.`;
+Write the content in ${this.language} language.
 
-    try {
-      // 获取第一个章节
-      const section = this.directory.sections[0];
-      if (!section) {
-        return {
-          status: 'failed',
-          content: 'No sections found in directory'
-        };
-      }
-
-      const contentPrompt = `
 Topic: ${topic}
 Section: ${section.title}
 Subsections: ${JSON.stringify(section.subsections.map(sub => sub.title))}
 
 Please write detailed content for this section and its subsections.`;
+  }
 
-      const contentResponse = await this.llm.chat(systemPrompt + "\n\n" + contentPrompt);
+  public async run(): Promise<StreamActionOutput> {
+    const topic = this.getArg<string>('topic');
+    if (!topic) {
+      return this.createOutput('Topic argument is required', 'failed');
+    }
 
-      return {
-        status: 'completed',
-        content: contentResponse
-      };
+    logger.debug('[WriteContent] Generating content for:', topic);
+
+    try {
+      const contentResponse = await this.ask(await this.prompt());
+      return this.createOutput(contentResponse, 'completed');
     } catch (error) {
       logger.error('[WriteContent] Error generating content:', error);
-      return {
-        status: 'failed',
-        content: `Error generating content: ${error}`
-      };
+      return this.handleException(error as Error);
     }
   }
 }
@@ -279,24 +257,32 @@ export class WriteTutorial extends BaseAction {
     args?: WriteTutorialArgs;
     memory?: any;
   }) {
-    const messages: any[] = [];
     super({
-      name: config.name,
-      llm: config.llm,
-      memory: config.memory || {
-        getMessages: () => messages,
-        add: (msg: any) => { messages.push(msg); },
-        get: () => messages,
-        clear: () => { messages.length = 0; }
-      }
+      ...config,
+      name: config.name || 'WriteTutorial',
+      description: 'Generate comprehensive tutorial content'
     });
     this.args = config.args || {};
   }
 
-  private async generateTutorial(config: WriteTutorialConfig): Promise<Tutorial> {
-    logger.debug('[WriteTutorial] Generating tutorial for:', config.topic);
+  protected async prompt(): Promise<string> {
+    const messages = await this.context?.memory?.getMessages();
+    if (!messages || messages.length === 0) {
+      throw new Error('No messages available for tutorial generation');
+    }
 
-    const systemPrompt = `You are an expert technical writer and educator. Create a comprehensive tutorial on the given topic.
+    const lastMessage = messages[messages.length - 1];
+    const config: WriteTutorialConfig = {
+      topic: lastMessage.content,
+      level: this.args?.level || TutorialLevel.BEGINNER,
+      format: this.args?.format || TutorialFormat.STEP_BY_STEP,
+      include_exercises: this.args?.include_exercises || false,
+      target_audience: this.args?.target_audience || 'general',
+      max_length: this.args?.max_length || 5000,
+      focus_areas: this.args?.focus_areas || []
+    };
+
+    return `You are an expert technical writer and educator. Create a comprehensive tutorial on the given topic.
 The tutorial should be:
 1. Clear and well-structured
 2. Appropriate for the specified difficulty level
@@ -305,12 +291,18 @@ The tutorial should be:
 5. Include exercises if requested
 6. Target the specified audience
 
-Provide your tutorial in a structured JSON format matching the Tutorial schema.`;
+Provide your tutorial in a structured JSON format matching the Tutorial schema.
+
+Tutorial request: ${JSON.stringify(config)}`;
+  }
+
+  private async generateTutorial(config: WriteTutorialConfig): Promise<Tutorial> {
+    logger.debug('[WriteTutorial] Generating tutorial for:', config.topic);
 
     try {
-      const tutorialResponse = await this.llm.chat(systemPrompt + "\n\nTutorial request: " + JSON.stringify(config));
+      const tutorialResponse = await this.ask(await this.prompt());
       
-      // 使用Zod验证解析JSON
+      // Parse JSON with Zod validation
       return parseJsonWithZod<Tutorial>(
         tutorialResponse, 
         TutorialSchema,
@@ -394,32 +386,31 @@ ${tutorial.further_reading.map(resource => `- ${resource}`).join('\n')}` : ''}
 ${tutorial.keywords.join(', ')}`;
   }
 
-  public async run(): Promise<ActionOutput> {
-    const messages = this.context.memory.getMessages();
-    if (messages.length === 0) {
-      return {
-        status: 'failed',
-        content: 'No messages available for tutorial generation'
+  public async run(): Promise<StreamActionOutput> {
+    try {
+      const messages = await this.context?.memory?.getMessages();
+      if (!messages || messages.length === 0) {
+        return this.createOutput('No messages available for tutorial generation', 'failed');
+      }
+
+      const lastMessage = messages[messages.length - 1];
+      const config: WriteTutorialConfig = {
+        topic: lastMessage.content,
+        level: this.args?.level || TutorialLevel.BEGINNER,
+        format: this.args?.format || TutorialFormat.STEP_BY_STEP,
+        include_exercises: this.args?.include_exercises || false,
+        target_audience: this.args?.target_audience || 'general',
+        max_length: this.args?.max_length || 5000,
+        focus_areas: this.args?.focus_areas || []
       };
+
+      const tutorial = await this.generateTutorial(config);
+      const formattedTutorial = this.formatTutorial(tutorial);
+
+      return this.createOutput(formattedTutorial, 'completed');
+    } catch (error) {
+      logger.error('[WriteTutorial] Error in tutorial generation:', error);
+      return this.handleException(error as Error);
     }
-
-    const lastMessage = messages[messages.length - 1];
-    const config: WriteTutorialConfig = {
-      topic: lastMessage.content,
-      level: this.args?.level || TutorialLevel.BEGINNER,
-      format: this.args?.format || TutorialFormat.STEP_BY_STEP,
-      include_exercises: this.args?.include_exercises || false,
-      target_audience: this.args?.target_audience || 'general',
-      max_length: this.args?.max_length || 5000,
-      focus_areas: this.args?.focus_areas || []
-    };
-
-    const tutorial = await this.generateTutorial(config);
-    const formattedTutorial = this.formatTutorial(tutorial);
-
-    return {
-      status: 'completed',
-      content: formattedTutorial
-    };
   }
 }

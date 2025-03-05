@@ -1,5 +1,5 @@
 import { BaseAction } from './base-action';
-import type { ActionOutput, ActionConfig } from '../types/action';
+import type { StreamActionOutput, ActionConfig } from '../types/action';
 import { logger } from '../utils/logger';
 
 /**
@@ -24,92 +24,41 @@ export class WritePRD extends BaseAction {
     logger.debug(`[${this.name}] Requirements set: ${requirements.substring(0, 50)}...`);
   }
 
+  protected async prompt(): Promise<string> {
+    // Get requirements from context
+    const requirements = this.getArg<string>('requirements') || '';
+    const format = this.getArg<string>('format') || 'markdown';
+    const audience = this.getArg<string>('audience') || 'development team';
+    
+    if (!requirements) {
+      throw new Error('No requirements provided. Please specify the product requirements.');
+    }
+    
+    return this.constructPRDPrompt(requirements, format, audience);
+  }
+
   /**
    * Run the action to generate a PRD
    * @returns Action output containing the generated PRD
    */
-  async run(): Promise<ActionOutput> {
+  async run(): Promise<StreamActionOutput> {
     try {
       logger.info(`[${this.name}] Running WritePRD action`);
       
-      // Get requirements from context
-      const requirements = this.getArg<string>('requirements') || '';
-      const format = this.getArg<string>('format') || 'markdown';
-      const audience = this.getArg<string>('audience') || 'development team';
-      
-      if (!requirements) {
-        return this.createOutput(
-          'No requirements provided. Please specify the product requirements.',
-          'failed'
-        );
-      }
-      
-      // Construct prompt for PRD generation
-      const prompt = this.constructPRDPrompt(requirements, format, audience);
-      
       // Generate PRD using LLM
-      const generatedPRD = await this.ask(prompt);
+      const generatedPRD = await this.ask(await this.prompt());
       
       return this.createOutput(
         generatedPRD,
         'completed',
-        { format, requirements }
+        { 
+          format: this.getArg<string>('format') || 'markdown',
+          requirements: this.getArg<string>('requirements') || ''
+        }
       );
     } catch (error) {
       logger.error(`[${this.name}] Error generating PRD:`, error);
-      await this.handleException(error as Error);
-      return this.createOutput(
-        `Failed to generate PRD: ${error}`,
-        'failed'
-      );
-    }
-  }
-
-  /**
-   * Run the action to generate a PRD with streaming response
-   * @param callback - Optional callback function to process each chunk of the stream
-   * @returns Action output containing the generated PRD
-   */
-  async runStream(callback?: (chunk: string) => void): Promise<ActionOutput> {
-    try {
-      logger.info(`[${this.name}] Running WritePRD action with streaming`);
-      
-      // Get requirements from context
-      const requirements = this.getArg<string>('requirements') || '';
-      const format = this.getArg<string>('format') || 'markdown';
-      const audience = this.getArg<string>('audience') || 'development team';
-      
-      if (!requirements) {
-        return this.createOutput(
-          'No requirements provided. Please specify the product requirements.',
-          'failed'
-        );
-      }
-      
-      // Construct prompt for PRD generation
-      const prompt = this.constructPRDPrompt(requirements, format, audience);
-      
-      // Generate PRD using LLM with streaming
-      let fullResponse = '';
-      for await (const chunk of this.askStream(prompt)) {
-        fullResponse += chunk;
-        if (callback) {
-          callback(chunk);
-        }
-      }
-      
-      return this.createOutput(
-        fullResponse,
-        'completed',
-        { format, requirements }
-      );
-    } catch (error) {
-      logger.error(`[${this.name}] Error generating PRD with streaming:`, error);
-      await this.handleException(error as Error);
-      return this.createOutput(
-        `Failed to generate PRD: ${error}`,
-        'failed'
-      );
+      return this.handleException(error as Error);
     }
   }
 

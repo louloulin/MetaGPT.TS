@@ -1,48 +1,43 @@
-import type { Action, ActionOutput, ActionContext } from '../types/action';
+import { BaseAction } from './base-action';
+import type { StreamActionOutput, ActionConfig } from '../types/action';
 import type { LLMProvider } from '../types/llm';
 import { logger } from '../utils/logger';
 import { handleLLMResponse } from '../utils/stream-helper';
 
-export interface AssessUnderstandingArgs {
-  topic: string;
+export interface AssessUnderstandingConfig extends ActionConfig {
+  topic?: string;
   level?: string;
 }
 
-export class AssessUnderstanding implements Action {
-  name = 'AssessUnderstanding';
-  context: ActionContext = {
-    name: 'assess_understanding',
-    description: 'Generate assessment questions to evaluate understanding',
-    args: {
-      topic: 'The topic to assess',
-      level: 'Optional difficulty level'
-    },
-    memory: null,
-    workingMemory: null,
-    llm: null
-  };
-  prefix = 'assess';
-  llm: LLMProvider;
+/**
+ * Action for generating assessment questions to evaluate understanding
+ */
+export class AssessUnderstanding extends BaseAction {
+  private topic: string;
+  private level: string;
 
-  constructor({ llm }: { llm: LLMProvider }) {
-    this.llm = llm;
-    this.context.llm = llm;
+  constructor(config: AssessUnderstandingConfig) {
+    super({
+      ...config,
+      name: config.name || 'AssessUnderstanding',
+      description: config.description || 'Generate assessment questions to evaluate understanding'
+    });
+
+    this.topic = config.topic || '';
+    this.level = config.level || 'intermediate';
   }
 
-  async run(args?: AssessUnderstandingArgs): Promise<ActionOutput> {
-    if (!args?.topic) {
-      return {
-        status: 'failed',
-        content: 'Topic is required'
-      };
+  protected async prompt(): Promise<string> {
+    const topic = this.getArg<string>('topic') || this.topic;
+    const level = this.getArg<string>('level') || this.level;
+
+    if (!topic) {
+      throw new Error('Topic is required');
     }
 
-    logger.info(`[AssessUnderstanding] Generating assessment for topic: ${args.topic}`);
-
-    try {
-      const prompt = `你是一位专业的教育专家。请为以下主题创建评估问题：
-主题：${args.topic}
-难度级别：${args.level || 'intermediate'}
+    return `你是一位专业的教育专家。请为以下主题创建评估问题：
+主题：${topic}
+难度级别：${level}
 
 请创建以下类型的问题：
 1. 2-3个选择题
@@ -55,22 +50,27 @@ export class AssessUnderstanding implements Action {
 - 能够测试对概念的真正理解
 
 请确保问题难度适中，符合指定的难度级别。`;
+  }
 
-      const content = await handleLLMResponse(this.llm, prompt, this.name, {
-        timeout: 45000, // 45秒超时
-        debug: true
-      });
+  public async run(): Promise<StreamActionOutput> {
+    try {
+      const prompt = await this.prompt();
+      const response = await this.ask(prompt);
 
-      return {
-        status: 'completed',
-        content
-      };
+      return this.createOutput(
+        response,
+        'completed',
+        {
+          topic: this.getArg<string>('topic') || this.topic,
+          level: this.getArg<string>('level') || this.level
+        }
+      );
     } catch (error) {
-      logger.error(`[AssessUnderstanding] Error: ${error instanceof Error ? error.message : String(error)}`);
-      return {
-        status: 'failed',
-        content: `Failed to generate assessment: ${error instanceof Error ? error.message : String(error)}`
-      };
+      logger.error(`[${this.name}] Error:`, error);
+      return this.createOutput(
+        `Failed to generate assessment: ${error instanceof Error ? error.message : String(error)}`,
+        'failed'
+      );
     }
   }
 } 
