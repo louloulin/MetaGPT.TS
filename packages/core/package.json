@@ -1,0 +1,70 @@
+{
+  "name": "@metagpt/core",
+  "version": "0.1.0",
+  "private": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "license": "MIT",
+  "files": [
+    "dist/**"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "dev": "tsup src/index.ts --format esm,cjs --watch --dts",
+    "lint": "eslint \"src/**/*.ts*\"",
+    "clean": "rm -rf .turbo && rm -rf node_modules && rm -rf dist",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^1.1.10",
+    "@ai-sdk/google": "^1.1.17",
+    "@ai-sdk/mistral": "^1.1.13",
+    "@ai-sdk/openai": "^1.1.14",
+    "@jest/types": "^29.6.3",
+    "@pinecone-database/pinecone": "^5.1.0",
+    "@qdrant/js-client-rest": "^1.13.0",
+    "@types/jest": "^29.5.14",
+    "@types/lodash": "^4.17.15",
+    "@types/uuid": "^10.0.0",
+    "ai": "^4.1.46",
+    "axios": "^1.7.9",
+    "dotenv": "^16.3.1",
+    "glob": "^10.3.10",
+    "llamaindex": "^0.9.5",
+    "lodash": "^4.17.21",
+    "openai": "^4.85.4",
+    "pdf-parse": "^1.1.1",
+    "qwen-ai-provider": "^0.1.0",
+    "rxjs": "^7.8.2",
+    "ts-jest": "^29.2.6",
+    "uuid": "^11.1.0",
+    "winston": "^3.17.0",
+    "xstate": "^5.19.2",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.0.0",
+    "eslint-config-custom": "*",
+    "jest": "^29.0.0",
+    "tsup": "^8.0.0",
+    "@eslint/js": "^9.21.0",
+    "@types/bun": "latest",
+    "@types/glob": "^8.1.0",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.13.5",
+    "@typescript-eslint/eslint-plugin": "8.25.0",
+    "@typescript-eslint/parser": "8.25.0",
+    "bun-types": "latest",
+    "eslint": "^9.21.0",
+    "memfs": "^4.17.0",
+    "prettier": "^3.5.2",
+    "typedoc": "0.27.9",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.7"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+} 

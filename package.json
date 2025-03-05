@@ -1,23 +1,26 @@
 {
-  "name": "@metagpt/monorepo",
-  "version": "1.0.0",
+  "name": "metagpt-ts",
+  "version": "0.1.0",
   "private": true,
   "workspaces": [
-    "metagpt-ui",
     "packages/*"
   ],
   "scripts": {
-    "build": "bun run --cwd metagpt-ui build",
-    "dev": "bun run --cwd metagpt-ui dev",
-    "test": "bun test",
-    "lint": "eslint . --ext .ts,.tsx"
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "clean": "turbo run clean",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\""
   },
   "devDependencies": {
-    "@typescript-eslint/eslint-plugin": "^5.0.0",
-    "@typescript-eslint/parser": "^5.0.0",
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
     "eslint": "^8.0.0",
-    "typescript": "^5.0.0",
-    "vitest": "^1.0.0"
+    "prettier": "^3.0.0",
+    "turbo": "^1.12.0",
+    "typescript": "^5.0.0"
   },
   "packageManager": "pnpm@10.5.2+sha512.da9dc28cd3ff40d0592188235ab25d3202add8a207afbedc682220e4a0029ffbff4562102b9e6e46b4e3f9e8bd53e6d05de48544b0c57d4b0179e22c76d1199b",
   "dependencies": {
