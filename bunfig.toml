@@ -1,7 +1,3 @@
 [install]
 # Enable workspaces for the project
 workspaces = true
-
-[install.scopes]
-# Configure scopes for workspaces
-metagpt = "metagpt-ui" 
