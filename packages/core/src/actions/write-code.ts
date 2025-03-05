@@ -3,102 +3,73 @@ import type { ActionOutput, ActionConfig } from '../types/action';
 import { logger } from '../utils/logger';
 
 /**
- * WriteCode Action
- * Generates code based on requirements and specifications
+ * Action for writing code based on requirements
  */
 export class WriteCode extends BaseAction {
   constructor(config: ActionConfig) {
     super({
       ...config,
       name: config.name || 'WriteCode',
-      description: config.description || 'Generates code based on requirements and specifications',
+      description: config.description || 'Write code based on requirements and specifications',
     });
   }
 
   /**
-   * Run the action to generate code
-   * @returns Action output containing the generated code
+   * Execute the code writing action
+   * @returns Generated code
    */
-  async run(): Promise<ActionOutput> {
+  public async run(): Promise<ActionOutput> {
     try {
-      logger.info(`[${this.name}] Running WriteCode action`);
+      logger.info(`[${this.name}] Running code generation`);
       
-      // Get requirements from context
+      // Get requirements from args
       const requirements = this.getArg<string>('requirements') || '';
-      const language = this.getArg<string>('language') || 'typescript';
+      const language = this.getArg<string>('language') || 'TypeScript';
       const context = this.getArg<string>('context') || '';
       
       if (!requirements) {
         return this.createOutput(
-          'No requirements provided. Please specify what code you need.',
+          'No requirements provided for code generation',
           'failed'
         );
       }
-      
-      // Construct prompt for code generation
-      const prompt = this.constructCodePrompt(requirements, language, context);
-      
+
+      if (!this.llm) {
+        return this.createOutput(
+          'LLM provider is required for code generation',
+          'failed'
+        );
+      }
+
       // Generate code using LLM
-      const generatedCode = await this.ask(prompt);
+      const prompt = `Write ${language} code based on the following requirements:
       
-      // Extract code from LLM response (in case it includes explanations)
-      const extractedCode = this.extractCodeFromResponse(generatedCode, language);
+${context ? `Context:
+${context}
+
+` : ''}Requirements:
+${requirements}
+
+Please provide:
+1. Complete implementation with all necessary imports
+2. Clear comments explaining the code
+3. Error handling and edge cases
+4. Type definitions (if applicable)
+5. Example usage (if applicable)
+
+Follow these guidelines:
+- Use modern ${language} features and best practices
+- Write clean, maintainable code
+- Include proper error handling
+- Add JSDoc comments for functions and types
+- Consider performance and scalability`;
+
+      const code = await this.ask(prompt);
       
-      return this.createOutput(
-        extractedCode,
-        'completed',
-        { language, requirements }
-      );
+      return this.createOutput(code, 'completed');
     } catch (error) {
-      logger.error(`[${this.name}] Error generating code:`, error);
-      await this.handleException(error as Error);
-      return this.createOutput(
-        `Failed to generate code: ${error}`,
-        'failed'
-      );
+      logger.error(`[${this.name}] Error in code generation:`, error);
+      return this.handleException(error as Error);
     }
-  }
-
-  /**
-   * Construct a prompt for code generation
-   * @param requirements - Requirements for the code
-   * @param language - Programming language
-   * @param context - Additional context
-   * @returns Constructed prompt
-   */
-  private constructCodePrompt(requirements: string, language: string, context: string): string {
-    return `
-    You are an expert ${language} developer. Write clean, efficient, and well-documented code based on the following requirements:
-    
-    REQUIREMENTS:
-    ${requirements}
-    
-    ${context ? `ADDITIONAL CONTEXT:\n${context}\n` : ''}
-    
-    Please provide only the ${language} code without explanations. The code should be complete, functional, and follow best practices.
-    Include appropriate error handling, comments, and documentation.
-    `;
-  }
-
-  /**
-   * Extract code from LLM response
-   * @param response - LLM response
-   * @param language - Programming language
-   * @returns Extracted code
-   */
-  private extractCodeFromResponse(response: string, language: string): string {
-    // Try to extract code between markdown code blocks
-    const codeBlockRegex = new RegExp(`\`\`\`(?:${language})?(.*?)\`\`\``, 'gs');
-    const matches = response.match(codeBlockRegex);
-    
-    if (matches && matches.length > 0) {
-      // Extract content from the first code block
-      const codeBlock = matches[0];
-      const code = codeBlock.replace(/```(?:\w+)?\n?/, '').replace(/```$/, '');
-      return code.trim();
-    }
-    
-    // If no code blocks found, return the entire response
-    return response.trim();
   }
 } 
