@@ -104,15 +104,79 @@ export interface DebugConfig {
 }
 
 /**
- * Action for debugging code errors
+ * Action for debugging errors and providing solutions
  */
-export class DebugError extends BaseAction {
+export class DebugErrorAction extends BaseAction {
   constructor(config: ActionConfig) {
     super({
       ...config,
       name: config.name || 'DebugError',
-      description: config.description || 'Analyzes code errors, generates solutions, validates fixes, and provides debugging documentation',
+      description: config.description || 'Debug errors and provide solutions'
     });
+  }
+
+  protected async prompt(): Promise<string> {
+    const error = this.getArg<string>('error');
+    const context = this.getArg<string>('context') || '';
+    const language = this.getArg<string>('language') || 'typescript';
+    const stackTrace = this.getArg<string>('stackTrace') || '';
+    const code = this.getArg<string>('code') || '';
+    
+    if (!error) {
+      throw new Error('No error message provided for debugging');
+    }
+
+    return `Please analyze and debug the following error:
+
+Language: ${language}
+
+${context ? `Context:\n${context}\n\n` : ''}
+Error Message:
+${error}
+
+${stackTrace ? `Stack Trace:\n${stackTrace}\n\n` : ''}
+${code ? `Relevant Code:\n${code}\n\n` : ''}
+
+Please provide:
+1. Error Analysis
+   - Error type and cause
+   - Affected components/lines
+   - Potential impact
+
+2. Debugging Steps
+   - Step-by-step investigation process
+   - Key areas to check
+   - Relevant log points to add
+
+3. Solution(s)
+   - Immediate fix
+   - Long-term prevention
+   - Code examples if applicable
+
+4. Prevention Measures
+   - Best practices to prevent similar errors
+   - Recommended error handling
+   - Testing suggestions
+
+Format your response as:
+[Error Analysis]
+Type: ...
+Cause: ...
+Impact: ...
+
+[Debug Steps]
+1. ...
+2. ...
+
+[Solutions]
+Immediate Fix:
+...
+Long-term:
+...
+
+[Prevention]
+- ...
+- ...`;
   }
 
   /**
@@ -227,7 +291,7 @@ export class DebugError extends BaseAction {
     // Create RunCode action instance
     const runCode = new RunCode({
       name: 'RunCode',
-      llm: this.llm,
+      llm: await this.getLLM(),
       args: {
         code,
         language,

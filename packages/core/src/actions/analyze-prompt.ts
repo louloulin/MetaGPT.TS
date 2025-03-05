@@ -7,6 +7,7 @@
 
 import { BaseAction } from './base-action';
 import type { ActionOutput } from '../types/action';
+import type { LLMProvider } from '../types/llm';
 import { logger } from '../utils/logger';
 
 export interface PromptAnalysis {
@@ -21,18 +22,33 @@ export interface PromptAnalysis {
   estimated_steps: number;
 }
 
+export interface AnalyzePromptConfig {
+  llm: LLMProvider;
+  useStream?: boolean;
+  streamOptions?: {
+    timeout?: number;
+    debug?: boolean;
+  };
+}
+
 export class AnalyzePrompt extends BaseAction {
-  constructor(config: any) {
+  constructor(config: AnalyzePromptConfig) {
     super({
       name: 'AnalyzePrompt',
-      ...config,
+      llm: config.llm,
+      useStream: config.useStream,
+      streamOptions: config.streamOptions
     });
   }
 
-  private async analyzePrompt(prompt: string): Promise<PromptAnalysis> {
-    logger.debug('[AnalyzePrompt] Analyzing prompt:', prompt);
+  protected async prompt(): Promise<string> {
+    const messages = await this.context.memory.getMessages();
+    if (!messages || messages.length === 0) {
+      throw new Error('No messages available for analysis');
+    }
 
-    const systemPrompt = `You are a prompt analysis expert. Analyze the given prompt and break it down into its key components.
+    const lastMessage = messages[messages.length - 1];
+    return `You are a prompt analysis expert. Analyze the given prompt and break it down into its key components.
 Focus on identifying:
 1. The core request/task
 2. Explicit requirements clearly stated in the prompt
@@ -44,10 +60,16 @@ Focus on identifying:
 8. Assessment of task complexity
 9. Estimated number of steps to complete
 
+Prompt to analyze: ${lastMessage.content}
+
 Provide your analysis in a structured JSON format matching the PromptAnalysis interface.`;
+  }
+
+  private async analyzePrompt(prompt: string): Promise<PromptAnalysis> {
+    logger.debug('[AnalyzePrompt] Analyzing prompt:', prompt);
 
     try {
-      const analysisResponse = await this.llm.chat(systemPrompt + "\n\nPrompt to analyze: " + prompt);
+      const analysisResponse = await this.ask(await this.prompt());
       const analysis = JSON.parse(analysisResponse);
 
       // Validate and ensure all required fields are present

@@ -29,9 +29,34 @@ import {
 } from '../types/role';
 import type { Message } from '../types/message';
 import type { Action, ActionOutput } from '../types/action';
+import { ActionRunMode } from '../actions/base-action';
 import { logger } from '../utils/logger';
 import { generateId } from '../utils/common';
 import { MemoryManagerImpl } from '../memory/manager';
+
+/**
+ * Type for streaming callback function
+ */
+export type StreamCallback = (chunk: string, actionName: string) => void;
+
+/**
+ * Role run mode enum
+ */
+export enum RoleRunMode {
+  REGULAR = 'regular',
+  STREAMING = 'streaming',
+  AUTO = 'auto' // Automatically determine based on action support
+}
+
+/**
+ * Run options for roles
+ */
+export interface RoleRunOptions {
+  mode?: RoleRunMode;
+  streamCallback?: StreamCallback;
+  actionOptions?: Record<string, any>;
+  systemMessages?: string[];
+}
 
 /**
  * Enhanced Role Base Class
@@ -44,7 +69,7 @@ export abstract class BaseRole implements Role {
   readonly constraints: string;
   readonly actions: Action[] = [];
   readonly context: RoleContext;
-  readonly desc: string = '';
+  desc: string = '';
   states: string[] = [];
 
   // Message stream
@@ -297,43 +322,133 @@ export abstract class BaseRole implements Role {
   }
 
   /**
-   * Main entry point for role execution
-   * @param message Optional message to start with
-   * @returns Result message from execution
+   * Run the role with specified mode and options
+   * @param message Input message to process
+   * @param options Run options including mode and callbacks
+   * @returns Processed message
    */
-  async run(message?: Message): Promise<Message> {
-    logger.info(`[${this.name}] Running role...`);
-    
-    // If message is provided, add it to memory
-    if (message) {
+  async run(message: Message, options?: RoleRunOptions): Promise<Message> {
+    try {
+      logger.info(`[${this.name}] Running role with mode: ${options?.mode || RoleRunMode.REGULAR}`);
+      
+      // Add message to memory
       await this.addToMemory(message);
+      
+      // Start the role's state machine if not already started
+      if (this.actor.getSnapshot().status !== 'active') {
+        this.start();
+      }
+
+      // Based on react mode, execute different patterns
+      let result: Message;
+      switch (this.context.reactMode) {
+        case 'react':
+          // Simple react pattern with action options
+          result = await this.reactWithOptions(message, options);
+          break;
+          
+        case 'by_order':
+          // Execute actions in order
+          await this.observe();
+          await this.think();
+          result = await this.actWithOptions(options);
+          break;
+          
+        case 'plan_and_act':
+          // Plan and execute actions
+          await this.observe();
+          await this.planActions(message);
+          result = await this.actWithOptions(options);
+          break;
+          
+        default:
+          result = await this.reactWithOptions(message, options);
+      }
+
+      return result;
+    } catch (error) {
+      logger.error(`[${this.name}] Error in run:`, error);
+      return this.createMessage(`Error: ${error}`);
+    }
+  }
+
+  /**
+   * React to a message with options
+   * @param message Message to react to
+   * @param options Run options
+   * @returns Response message
+   */
+  protected async reactWithOptions(message: Message, options?: RoleRunOptions): Promise<Message> {
+    // Decide which action to take
+    const action = await this.decideNextAction(message);
+    
+    if (!action) {
+      logger.warn(`[${this.name}] No suitable action found for message`);
+      return this.createMessage('No suitable action found.');
     }
     
-    // Start the role's state machine if not already started
-    if (this.actor.getSnapshot().status !== 'active') {
-      this.start();
+    logger.info(`[${this.name}] Selected action: ${action.name}`);
+
+    // Prepare action options
+    const actionOptions = {
+      mode: options?.mode === RoleRunMode.STREAMING ? ActionRunMode.STREAMING : ActionRunMode.REGULAR,
+      streamCallback: options?.streamCallback,
+      systemMessages: options?.systemMessages,
+      args: {
+        ...options?.actionOptions,
+        message: message.content
+      }
+    };
+
+    // Run the action with options
+    const result = await action.run(actionOptions);
+    
+    // Create response message
+    const responseMessage = this.createMessage(
+      result.content || 'No output from action'
+    );
+    
+    // Add response to memory
+    await this.addToMemory(responseMessage);
+    
+    return responseMessage;
+  }
+
+  /**
+   * Execute the current todo action with options
+   * @param options Run options
+   * @returns Message with action result
+   */
+  protected async actWithOptions(options?: RoleRunOptions): Promise<Message> {
+    logger.debug(`[${this.name}] Acting with options...`);
+    
+    if (!this.context.todo) {
+      return this.createMessage("No action to perform");
     }
     
-    // Based on react mode, execute different patterns
-    switch (this.context.reactMode) {
-      case 'react':
-        // Simple react pattern
-        return await this.react(message);
-        
-      case 'by_order':
-        // Execute actions in order
-        await this.observe();
-        await this.think();
-        return await this.act();
-        
-      case 'plan_and_act':
-        // Plan and execute actions
-        await this.observe();
-        await this.planActions(message);
-        return await this.act();
-        
-      default:
-        return await this.react(message);
+    try {
+      // Prepare action options
+      const actionOptions = {
+        mode: options?.mode === RoleRunMode.STREAMING ? ActionRunMode.STREAMING : ActionRunMode.REGULAR,
+        streamCallback: options?.streamCallback,
+        systemMessages: options?.systemMessages,
+        args: options?.actionOptions
+      };
+
+      // Execute the action
+      const action = this.context.todo;
+      const result = await action.run(actionOptions);
+      
+      // Create message from result
+      const message = this.createMessage(result.content);
+      
+      // Add to working memory
+      await this.addToWorkingMemory(message);
+      
+      return message;
+    } catch (error) {
+      logger.error(`[${this.name}] Action error:`, error);
+      return this.createMessage(`Error executing action: ${error}`);
     }
   }
 

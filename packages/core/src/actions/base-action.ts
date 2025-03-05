@@ -1,9 +1,33 @@
 import { z } from 'zod';
-import type { Action, ActionContext, ActionOutput, ActionConfig } from '../types/action';
+import type { Action, ActionConfig, ActionContext, StreamActionOutput } from '../types/action';
 import type { LLMProvider } from '../types/llm';
-import { ActionContextSchema, ActionOutputSchema } from '../types/action';
-import { logger } from '../utils/logger';
+import { ActionContextSchema } from '../types/action';
 import { ArrayMemory } from '../types/memory';
+import { logger } from '../utils/logger';
+import { handleLLMResponse } from '../utils/stream-helper';
+
+/**
+ * Type for streaming callback function
+ */
+export type ActionStreamCallback = (chunk: string) => void;
+
+/**
+ * Action run mode enum
+ */
+export enum ActionRunMode {
+  REGULAR = 'regular',
+  STREAMING = 'streaming'
+}
+
+/**
+ * Action run options interface
+ */
+export interface ActionRunOptions {
+  mode?: ActionRunMode;
+  streamCallback?: ActionStreamCallback;
+  systemMessages?: string[];
+  args?: Record<string, any>;
+}
 
 /**
  * Base Action Class
@@ -12,9 +36,17 @@ import { ArrayMemory } from '../types/memory';
 export abstract class BaseAction implements Action {
   name: string;
   context: ActionContext;
-  llm: LLMProvider;
+  private _llm: LLMProvider;
   prefix: string = '';
   desc: string = '';
+  private _useStream: boolean = false;
+  private _streamOptions: {
+    timeout: number;
+    debug: boolean;
+  } = {
+    timeout: 30000,
+    debug: false
+  };
 
   constructor(config: ActionConfig) {
     // Validate configuration
@@ -26,12 +58,25 @@ export abstract class BaseAction implements Action {
       llm: z.any(),
       memory: z.any().optional(),
       workingMemory: z.any().optional(),
+      useStream: z.boolean().optional(),
+      streamOptions: z.object({
+        timeout: z.number().optional(),
+        debug: z.boolean().optional()
+      }).optional()
     }).parse(config);
 
     this.name = validConfig.name;
-    this.llm = validConfig.llm;
+    this._llm = validConfig.llm;
     this.prefix = validConfig.prefix || '';
     this.desc = validConfig.description || '';
+    this._useStream = validConfig.useStream ?? false;
+    
+    if (validConfig.streamOptions) {
+      this._streamOptions = {
+        timeout: validConfig.streamOptions.timeout ?? 30000,
+        debug: validConfig.streamOptions.debug ?? false
+      };
+    }
 
     // Build context with default memory implementation if not provided
     const memory = validConfig.memory || new ArrayMemory();
@@ -41,7 +86,6 @@ export abstract class BaseAction implements Action {
       name: validConfig.name,
       description: validConfig.description || '',
       args: validConfig.args || {},
-      llm: validConfig.llm,
       memory,
       workingMemory,
     });
@@ -53,16 +97,106 @@ export abstract class BaseAction implements Action {
   }
 
   /**
-   * Execute the action
-   * Subclasses must implement this method
+   * Run the action with specified mode and options
+   * @param options Run options including mode and callbacks
+   * @returns Action output
    */
-  abstract run(): Promise<ActionOutput>;
+  async run(options?: ActionRunOptions): Promise<StreamActionOutput> {
+    try {
+      // Apply options
+      if (options?.systemMessages) {
+        this.setArg('system_messages', options.systemMessages);
+      }
+      if (options?.args) {
+        Object.entries(options.args).forEach(([key, value]) => {
+          this.setArg(key, value);
+        });
+      }
+
+      // Choose run mode
+      if (options?.mode === ActionRunMode.STREAMING) {
+        return this.runStream(options.streamCallback);
+      } else {
+        return this.runRegular();
+      }
+    } catch (error) {
+      logger.error(`[${this.name}] Error in run:`, error);
+      return this.handleException(error as Error);
+    }
+  }
+
+  /**
+   * Regular (non-streaming) run implementation
+   * @returns Action output
+   */
+  private async runRegular(): Promise<StreamActionOutput> {
+    try {
+      // Get prompt from action implementation
+      const prompt = await this.prompt();
+      
+      if (!prompt) {
+        return this.createOutput(
+          'No prompt available.',
+          'failed'
+        );
+      }
+      
+      // Generate response using LLM without streaming
+      const response = await this.ask(prompt);
+      
+      return this.createOutput(
+        response,
+        'completed'
+      );
+    } catch (error) {
+      logger.error(`[${this.name}] Error in runRegular:`, error);
+      return this.handleException(error as Error);
+    }
+  }
+
+  /**
+   * Run the action with streaming support
+   * @param callback Optional callback for streaming chunks
+   * @returns Action output
+   */
+  private async runStream(callback?: ActionStreamCallback): Promise<StreamActionOutput> {
+    try {
+      logger.info(`[${this.name}] Running action with streaming`);
+      
+      // Get prompt from action implementation
+      const prompt = await this.prompt();
+      
+      if (!prompt) {
+        return this.createOutput(
+          'No prompt available for streaming.',
+          'failed'
+        );
+      }
+      
+      // Generate response using LLM with streaming
+      let fullResponse = '';
+      for await (const chunk of this.askStream(prompt)) {
+        fullResponse += chunk;
+        if (callback) {
+          callback(chunk);
+        }
+      }
+      
+      return this.createOutput(
+        fullResponse,
+        'completed'
+      );
+    } catch (error) {
+      logger.error(`[${this.name}] Error in runStream:`, error);
+      return this.handleException(error as Error);
+    }
+  }
 
   /**
    * Handle exceptions
    * @param error Error object
    */
-  async handleException(error: Error): Promise<ActionOutput> {
+  protected async handleException(error: Error): Promise<StreamActionOutput> {
     logger.error(`Action ${this.name} failed:`, error);
     return this.createOutput(
       `Action failed: ${error.message}`,
@@ -71,31 +205,22 @@ export abstract class BaseAction implements Action {
   }
 
   /**
-   * Validate action output
-   * @param output Action output
-   * @returns Validated output
-   */
-  protected validateOutput(output: ActionOutput): ActionOutput {
-    return ActionOutputSchema.parse(output);
-  }
-
-  /**
-   * Create action output
+   * Create an action output
    * @param content Output content
-   * @param status Action status
-   * @param instructContent Instruction content (optional)
+   * @param status Output status
+   * @param metadata Optional metadata
    * @returns Action output
    */
   protected createOutput(
     content: string,
-    status: 'completed' | 'failed' | 'blocked' = 'completed',
-    instructContent?: any
-  ): ActionOutput {
-    return this.validateOutput({
+    status: 'completed' | 'failed' | 'created' | 'running' | 'blocked' = 'completed',
+    metadata?: Record<string, any>
+  ): StreamActionOutput {
+    return {
       content,
       status,
-      instructContent,
-    });
+      metadata
+    };
   }
 
   /**
@@ -120,68 +245,52 @@ export abstract class BaseAction implements Action {
    * @param prefix Prefix to set
    * @returns This action for chaining
    */
-  setPrefix(prefix: string): this {
+  protected setPrefix(prefix: string): this {
     this.prefix = prefix;
-    if (this.llm && typeof this.llm.setSystemPrompt === 'function') {
-      this.llm.setSystemPrompt(prefix);
+    if (this._llm && typeof this._llm.setSystemPrompt === 'function') {
+      this._llm.setSystemPrompt(prefix);
     }
     return this;
   }
 
   /**
-   * Ask the LLM a question
+   * Ask the LLM a question with support for streaming
    * @param prompt - The prompt to send to the LLM
    * @returns The LLM's response
    */
   protected async ask(prompt: string): Promise<string> {
     try {
-      if (!this.llm) {
-        // Try to get LLM from args
-        const llmFromArgs = this.getArg<LLMProvider>('llm');
-        if (!llmFromArgs) {
-          throw new Error(`[${this.name}] No LLM provider set for action`);
-        }
-        this.llm = llmFromArgs;
+      if (!this._llm) {
+        throw new Error(`[${this.name}] No LLM provider set for action`);
       }
       
-      // Apply system messages if provided
-      const systemMessages = this.getArg<string[]>('system_messages') || [];
-      let currentSystemPrompt = '';
-      
-      if (systemMessages.length > 0) {
-        currentSystemPrompt = systemMessages.join('\n');
-      }
-
-      // Set system prompt if different from current
-      if (currentSystemPrompt && 
-          this.llm &&
-          typeof this.llm.setSystemPrompt === 'function' && 
-          typeof this.llm.getSystemPrompt === 'function' &&
-          this.llm.getSystemPrompt() !== currentSystemPrompt) {
-        this.llm.setSystemPrompt(currentSystemPrompt);
-      }
+      await this.applySystemMessages();
 
       // Send prompt to LLM
       const promptPreview = prompt.length > 100 ? prompt.substring(0, 100) + '...' : prompt;
       logger.debug(`[${this.name}] Asking LLM: ${promptPreview}`);
       
-      const response = await this.llm.chat(prompt) as string | { content: string };
+      let response: string;
+      if (this._useStream && this._llm.chatStream) {
+        response = await handleLLMResponse(
+          this._llm,
+          prompt,
+          this.name,
+          this._streamOptions
+        );
+      } else {
+        const rawResponse = await this._llm.chat(prompt) as string | { content: string };
+        response = typeof rawResponse === 'object' && 'content' in rawResponse ? rawResponse.content : rawResponse;
+      }
       
       if (!response) {
         throw new Error(`[${this.name}] No response received from LLM`);
       }
-
-      // Handle response format
-      const content = typeof response === 'object' && 'content' in response ? response.content : response;
       
-      if (!content) {
-        throw new Error(`[${this.name}] No content in LLM response`);
-      }
-      
-      const responsePreview = content.length > 100 ? content.substring(0, 100) + '...' : content;
+      const responsePreview = response.length > 100 ? response.substring(0, 100) + '...' : response;
       logger.debug(`[${this.name}] LLM response: ${responsePreview}`);
       
-      return content;
+      return response;
     } catch (error) {
       logger.error(`[${this.name}] Error asking LLM:`, error);
       throw error;
@@ -195,43 +304,28 @@ export abstract class BaseAction implements Action {
    */
   protected async *askStream(prompt: string): AsyncGenerator<string> {
     try {
-      if (!this.llm) {
+      if (!this._llm) {
         throw new Error(`[${this.name}] No LLM provider set for action`);
       }
       
-      // Apply system messages if provided
-      const systemMessages = this.getArg<string[]>('system_messages') || [];
-      let currentSystemPrompt = '';
-      
-      if (systemMessages.length > 0) {
-        currentSystemPrompt = systemMessages.join('\n');
-      }
-
-      // Set system prompt if different from current
-      if (currentSystemPrompt && 
-          this.llm &&
-          typeof this.llm.setSystemPrompt === 'function' && 
-          typeof this.llm.getSystemPrompt === 'function' &&
-          this.llm.getSystemPrompt() !== currentSystemPrompt) {
-        this.llm.setSystemPrompt(currentSystemPrompt);
-      }
+      await this.applySystemMessages();
 
       // Send prompt to LLM with streaming
       logger.debug(`[${this.name}] Asking LLM (streaming): ${prompt.substring(0, 100)}...`);
       
       // Check if chatStream method exists on the LLM provider
-      if (this.llm && 'chatStream' in this.llm && typeof this.llm.chatStream === 'function') {
-        for await (const chunk of this.llm.chatStream(prompt)) {
+      if (this._llm && 'chatStream' in this._llm && typeof this._llm.chatStream === 'function') {
+        for await (const chunk of this._llm.chatStream(prompt)) {
           yield chunk;
         }
-      } else if (this.llm && 'generateStream' in this.llm && typeof this.llm.generateStream === 'function') {
+      } else if (this._llm && 'generateStream' in this._llm && typeof this._llm.generateStream === 'function') {
         // Fall back to generateStream if chatStream is not available
-        for await (const chunk of this.llm.generateStream(prompt)) {
+        for await (const chunk of this._llm.generateStream(prompt)) {
           yield chunk;
         }
       } else {
         // Fall back to non-streaming if streaming is not available
-        const response = await this.llm.chat(prompt);
+        const response = await this._llm.chat(prompt);
         yield response;
       }
       
@@ -243,41 +337,44 @@ export abstract class BaseAction implements Action {
   }
 
   /**
+   * Apply system messages to LLM if provided
+   */
+  private async applySystemMessages(): Promise<void> {
+    const systemMessages = this.getArg<string[]>('system_messages') || [];
+    const currentSystemPrompt = systemMessages.join('\n');
+    
+    if (currentSystemPrompt && 
+        this._llm &&
+        typeof this._llm.setSystemPrompt === 'function' && 
+        typeof this._llm.getSystemPrompt === 'function' &&
+        this._llm.getSystemPrompt() !== currentSystemPrompt) {
+      this._llm.setSystemPrompt(currentSystemPrompt);
+    }
+  }
+
+  /**
+   * Get the LLM provider
+   * @returns The LLM provider
+   */
+  protected async getLLM(): Promise<LLMProvider> {
+    if (!this._llm) {
+      throw new Error('No LLM provider available');
+    }
+    return this._llm;
+  }
+
+  /**
+   * Get the prompt for the action
+   * This should be implemented by derived classes
+   * @returns Prompt string
+   */
+  protected abstract prompt(): Promise<string>;
+
+  /**
    * Get string representation of the action
    * @returns String representation
    */
   toString(): string {
     return `${this.name}(${this.desc})`;
-  }
-
-  /**
-   * Helper method to get messages from memory
-   * @returns Array of messages or empty array if no messages available
-   */
-  protected async getMessages(): Promise<any[]> {
-    try {
-      if (!this.context?.memory) {
-        logger.warn(`[${this.name}] No memory available in context`);
-        return [];
-      }
-      
-      // Check if getMessages method exists (new API)
-      if (typeof this.context.memory.getMessages === 'function') {
-        const messages = await this.context.memory.getMessages();
-        return messages || [];
-      }
-      
-      // Fallback to get method (old API)
-      if (typeof this.context.memory.get === 'function') {
-        const messages = this.context.memory.get();
-        return messages || [];
-      }
-      
-      logger.warn(`[${this.name}] Memory does not have get or getMessages method`);
-      return [];
-    } catch (error) {
-      logger.error(`[${this.name}] Error getting messages:`, error);
-      return [];
-    }
   }
 } 

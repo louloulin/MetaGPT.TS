@@ -6,23 +6,23 @@
 export { BaseAction } from './base-action';
 
 // Code and product related actions
-export { WriteCode } from './write-code';
+export { WriteCodeAction as WriteCode } from './write-code';
 // Temporarily commented out due to missing module
 // export { AnalyzePrompt } from './analyze-prompt';
 export { WritePRD } from './write-prd';
 export { WriteTutorial } from './write-tutorial';
 
 // Analysis actions
-export { AnalyzeTask } from './analyze-task';
+export { AnalyzeTaskAction as AnalyzeTask } from './analyze-task';
 export { DesignArchitecture } from './design-architecture';
 export { DesignAPI } from './design-api';
-export { EvaluateArchitecture } from './evaluate-architecture';
+export { EvaluateArchitectureAction as  EvaluateArchitecture } from './evaluate-architecture';
 export { MapComponents } from './map-components';
-export { WriteTest } from './write-test';
-export { WriteReview } from './write-review';
-export { RunCode } from './run-code';
-export { DebugError } from './debug-error';
-export { SummarizeCode } from './summarize-code';
+export { WriteTestAction as WriteTest } from './write-test';
+export { WriteReview as WriteReview } from './write-review';
+export { RunCode as RunCode } from './run-code';
+export { DebugErrorAction as DebugError } from './debug-error';
+export { SummarizeCode as SummarizeCode } from './summarize-code';
 export { ComplexReasoning } from './complex-reasoning';
 
 // Information and research actions

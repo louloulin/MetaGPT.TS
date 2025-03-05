@@ -14,13 +14,20 @@ export const ActionStatusSchema = z.enum([
 
 export type ActionStatus = z.infer<typeof ActionStatusSchema>;
 
-export const ActionOutputSchema = z.object({
-  content: z.string(),
-  status: ActionStatusSchema,
-  instructContent: z.any().optional(),
-});
+export interface StreamActionOutput {
+  content: string;
+  status: ActionStatus;
+  metadata?: Record<string, any>;
+}
 
-export type ActionOutput = z.infer<typeof ActionOutputSchema>;
+export interface ActionContext {
+  name: string;
+  description: string;
+  args?: Record<string, any>;
+  memory?: MemoryManager;
+  workingMemory?: MemoryManager;
+  role?: Role;
+}
 
 export const ActionContextSchema = z.object({
   name: z.string(),
@@ -28,11 +35,8 @@ export const ActionContextSchema = z.object({
   args: z.record(z.any()).optional(),
   memory: z.any(),
   workingMemory: z.any(),
-  llm: z.any(),
   role: z.any().optional(),
 });
-
-export type ActionContext = z.infer<typeof ActionContextSchema>;
 
 export interface ActionConfig {
   name: string;
@@ -42,15 +46,18 @@ export interface ActionConfig {
   llm: LLMProvider;
   memory?: any;
   workingMemory?: any;
+  useStream?: boolean;
+  streamOptions?: {
+    timeout?: number;
+    debug?: boolean;
+  };
 }
 
 export interface Action {
   name: string;
-  desc?: string;
+  desc: string;
   context: ActionContext;
-  llm: LLMProvider;
   prefix: string;
-  run(): Promise<ActionOutput>;
-  handleException?(error: Error): Promise<ActionOutput>;
-  setPrefix?(prefix: string): void;
+  run(options?: any): Promise<StreamActionOutput>;
+  toString(): string;
 } 
