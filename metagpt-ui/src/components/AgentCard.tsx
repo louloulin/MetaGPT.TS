@@ -1,84 +1,82 @@
 import React from 'react';
-import type { AgentInfo } from '../types';
+import type { AgentInfo } from '../types/agent';
 
 interface AgentCardProps {
   agent: AgentInfo;
-  onAction?: (action: 'start' | 'stop' | 'restart') => void;
+  onClick?: (agent: AgentInfo) => void;
 }
 
-export const AgentCard: React.FC<AgentCardProps> = ({ agent, onAction }) => {
-  const statusColors = {
-    active: 'bg-green-100 text-green-800',
-    inactive: 'bg-gray-100 text-gray-800',
-    busy: 'bg-yellow-100 text-yellow-800'
+const AgentCard: React.FC<AgentCardProps> = ({ agent, onClick }) => {
+  const handleClick = () => {
+    if (onClick) {
+      onClick(agent);
+    }
   };
 
   return (
-    <div className="border rounded-lg p-4 hover:shadow-md transition-shadow">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-lg">{agent.name}</h3>
-        <span className={`px-2 py-1 rounded text-xs ${statusColors[agent.status]}`}>
+    <div
+      className="agent-card"
+      onClick={handleClick}
+      style={{
+        padding: '1rem',
+        margin: '0.5rem',
+        borderRadius: '8px',
+        backgroundColor: 'white',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+        cursor: onClick ? 'pointer' : 'default',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h3 style={{ margin: 0 }}>{agent.name}</h3>
+        <span
+          style={{
+            padding: '0.25rem 0.5rem',
+            borderRadius: '4px',
+            fontSize: '0.875rem',
+            backgroundColor: agent.status === 'working' ? '#E3F2FD' :
+                           agent.status === 'error' ? '#FFEBEE' : '#F5F5F5',
+            color: agent.status === 'working' ? '#1976D2' :
+                   agent.status === 'error' ? '#D32F2F' : '#757575',
+          }}
+        >
           {agent.status}
         </span>
       </div>
 
-      <div className="space-y-4">
-        <div>
-          <h4 className="text-sm font-medium text-gray-500 mb-2">Capabilities</h4>
-          <div className="flex flex-wrap gap-2">
-            {agent.capabilities.map((capability, index) => (
-              <span
-                key={index}
-                className="bg-blue-50 text-blue-700 text-xs px-2 py-1 rounded"
-              >
-                {capability}
-              </span>
-            ))}
-          </div>
+      <div style={{ marginTop: '1rem' }}>
+        <div style={{ fontSize: '0.875rem', color: '#666' }}>
+          Capabilities:
         </div>
-
-        <div className="grid grid-cols-3 gap-4">
-          <div>
-            <p className="text-sm text-gray-500">Tasks Completed</p>
-            <p className="font-semibold">{agent.metrics.tasksCompleted}</p>
-          </div>
-          <div>
-            <p className="text-sm text-gray-500">Success Rate</p>
-            <p className="font-semibold">{agent.metrics.successRate}%</p>
-          </div>
-          <div>
-            <p className="text-sm text-gray-500">Avg Response</p>
-            <p className="font-semibold">{agent.metrics.avgResponseTime}ms</p>
-          </div>
-        </div>
-
-        {onAction && (
-          <div className="flex space-x-2 mt-4">
-            {agent.status === 'inactive' && (
-              <button
-                onClick={() => onAction('start')}
-                className="bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600"
-              >
-                Start
-              </button>
-            )}
-            {agent.status === 'active' && (
-              <button
-                onClick={() => onAction('stop')}
-                className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600"
-              >
-                Stop
-              </button>
-            )}
-            <button
-              onClick={() => onAction('restart')}
-              className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600"
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.5rem' }}>
+          {agent.capabilities.map((capability, index) => (
+            <span
+              key={index}
+              style={{
+                padding: '0.25rem 0.5rem',
+                backgroundColor: '#F5F5F5',
+                borderRadius: '4px',
+                fontSize: '0.75rem',
+              }}
             >
-              Restart
-            </button>
-          </div>
-        )}
+              {capability}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ marginTop: '1rem' }}>
+        <div style={{ fontSize: '0.875rem', color: '#666' }}>
+          Metrics:
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.5rem' }}>
+          <div>Tasks: {agent.metrics.tasksCompleted}</div>
+          <div>Success: {(agent.metrics.successRate * 100).toFixed(1)}%</div>
+          <div>Avg Time: {agent.metrics.averageResponseTime}ms</div>
+          <div>Memory: {agent.metrics.memoryUsage}MB</div>
+        </div>
       </div>
     </div>
   );
-}; 
+};
+
+export default AgentCard; 

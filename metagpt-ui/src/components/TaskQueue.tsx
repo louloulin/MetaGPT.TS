@@ -1,94 +1,122 @@
 import React from 'react';
-import type { Task } from '../types';
+import type { Task } from '../types/task';
 
 interface TaskQueueProps {
   tasks: Task[];
-  onTaskAction?: (taskId: string, action: 'cancel' | 'retry' | 'prioritize') => void;
+  onTaskClick?: (task: Task) => void;
 }
 
-export const TaskQueue: React.FC<TaskQueueProps> = ({ tasks, onTaskAction }) => {
-  const statusColors = {
-    pending: 'bg-yellow-100 text-yellow-800',
-    running: 'bg-blue-100 text-blue-800',
-    completed: 'bg-green-100 text-green-800',
-    failed: 'bg-red-100 text-red-800'
+const TaskQueue: React.FC<TaskQueueProps> = ({ tasks, onTaskClick }) => {
+  const getStatusColor = (status: Task['status']) => {
+    switch (status) {
+      case 'completed':
+        return '#4CAF50';
+      case 'failed':
+        return '#F44336';
+      case 'in_progress':
+        return '#2196F3';
+      default:
+        return '#9E9E9E';
+    }
   };
 
-  const priorityColors = {
-    high: 'text-red-600',
-    medium: 'text-yellow-600',
-    low: 'text-green-600'
+  const getPriorityColor = (priority: Task['priority']) => {
+    switch (priority) {
+      case 'high':
+        return '#F44336';
+      case 'medium':
+        return '#FFC107';
+      case 'low':
+        return '#4CAF50';
+    }
+  };
+
+  const handleTaskClick = (task: Task) => {
+    if (onTaskClick) {
+      onTaskClick(task);
+    }
   };
 
   return (
-    <div className="border rounded-lg overflow-hidden">
-      <div className="bg-gray-50 px-4 py-2 border-b">
-        <h3 className="font-semibold">Task Queue</h3>
-      </div>
-      
-      <div className="divide-y">
-        {tasks.map(task => (
-          <div key={task.id} className="p-4 hover:bg-gray-50">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center space-x-2">
-                <span className={`px-2 py-1 rounded text-xs ${statusColors[task.status]}`}>
-                  {task.status}
-                </span>
-                <span className={`font-medium ${priorityColors[task.priority]}`}>
-                  {task.type}
-                </span>
+    <div className="task-queue" style={{ padding: '1rem' }}>
+      {tasks.map(task => (
+        <div
+          key={task.id}
+          onClick={() => handleTaskClick(task)}
+          style={{
+            padding: '1rem',
+            marginBottom: '0.5rem',
+            borderRadius: '8px',
+            backgroundColor: 'white',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+            cursor: onTaskClick ? 'pointer' : 'default',
+            borderLeft: `4px solid ${getPriorityColor(task.priority)}`,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontWeight: 'bold' }}>{task.type}</div>
+              <div style={{ fontSize: '0.875rem', color: '#666' }}>
+                ID: {task.id}
               </div>
-              <span className="text-sm text-gray-500">
-                {task.createdAt.toLocaleTimeString()}
-              </span>
             </div>
-
-            {task.status === 'running' && (
-              <div className="w-full bg-gray-200 rounded h-2 mb-2">
-                <div
-                  className="bg-blue-500 h-2 rounded"
-                  style={{ width: `${task.progress}%` }}
-                />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <div
+                style={{
+                  padding: '0.25rem 0.5rem',
+                  borderRadius: '4px',
+                  fontSize: '0.875rem',
+                  backgroundColor: `${getStatusColor(task.status)}20`,
+                  color: getStatusColor(task.status),
+                }}
+              >
+                {task.status}
               </div>
-            )}
-
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-500">
-                {task.assignedTo ? `Assigned to: ${task.assignedTo}` : 'Unassigned'}
-              </span>
-              
-              {onTaskAction && (
-                <div className="flex space-x-2">
-                  {task.status === 'pending' && (
-                    <button
-                      onClick={() => onTaskAction(task.id, 'prioritize')}
-                      className="text-blue-600 hover:text-blue-800"
-                    >
-                      Prioritize
-                    </button>
-                  )}
-                  {['pending', 'running'].includes(task.status) && (
-                    <button
-                      onClick={() => onTaskAction(task.id, 'cancel')}
-                      className="text-red-600 hover:text-red-800"
-                    >
-                      Cancel
-                    </button>
-                  )}
-                  {task.status === 'failed' && (
-                    <button
-                      onClick={() => onTaskAction(task.id, 'retry')}
-                      className="text-green-600 hover:text-green-800"
-                    >
-                      Retry
-                    </button>
-                  )}
-                </div>
-              )}
+              <div style={{ width: '40px', textAlign: 'right' }}>
+                {task.progress}%
+              </div>
             </div>
           </div>
-        ))}
-      </div>
+
+          {task.assignedTo && (
+            <div style={{ marginTop: '0.5rem', fontSize: '0.875rem', color: '#666' }}>
+              Assigned to: {task.assignedTo}
+            </div>
+          )}
+
+          {task.error && (
+            <div style={{ 
+              marginTop: '0.5rem',
+              padding: '0.5rem',
+              backgroundColor: '#FFEBEE',
+              color: '#D32F2F',
+              borderRadius: '4px',
+              fontSize: '0.875rem'
+            }}>
+              Error: {task.error}
+            </div>
+          )}
+
+          <div style={{ 
+            marginTop: '0.5rem',
+            height: '4px',
+            backgroundColor: '#E0E0E0',
+            borderRadius: '2px'
+          }}>
+            <div
+              style={{
+                width: `${task.progress}%`,
+                height: '100%',
+                backgroundColor: getStatusColor(task.status),
+                borderRadius: '2px',
+                transition: 'width 0.3s ease'
+              }}
+            />
+          </div>
+        </div>
+      ))}
     </div>
   );
-}; 
+};
+
+export default TaskQueue; 

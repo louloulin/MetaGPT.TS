@@ -1,0 +1,278 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+ 
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+ 
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+ 
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+ 
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+ 
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+ 
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+ 
+    --radius: 0.5rem;
+  }
+ 
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+ 
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+ 
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+ 
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+ 
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+ 
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+ 
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+ 
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+ 
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+  }
+}
+ 
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* 监控仪表板样式 */
+.monitoring-dashboard {
+  background-color: #f9fafb;
+  min-height: 100vh;
+}
+
+.dashboard-header {
+  background-color: #ffffff;
+  border-bottom: 1px solid hsl(var(--border));
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.dashboard-header h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+}
+
+.dashboard-content {
+  max-width: 1200px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+.monitoring-section {
+  background-color: #ffffff;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 2px 0 rgba(0,0,0,0.05);
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.section-description {
+  color: hsl(var(--muted-foreground));
+  margin-bottom: 1.5rem;
+}
+
+/* 指标卡片样式 */
+.metric-summary {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+@media (min-width: 768px) {
+  .metric-summary {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.metric-card {
+  background-color: #ffffff;
+  border: 1px solid;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  box-shadow: 0 1px 2px 0 rgba(0,0,0,0.05);
+  transition: all 0.2s ease;
+}
+
+.metric-card h3 {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+  margin-bottom: 0.5rem;
+}
+
+.metric-card .metric-value {
+  font-size: 1.875rem;
+  font-weight: 700;
+}
+
+.metric-card .unit {
+  font-size: 1.125rem;
+  margin-left: 0.25rem;
+  opacity: 0.7;
+}
+
+.metric-card.warning {
+  border-color: #facc15;
+  background-color: #fefce8;
+}
+
+.metric-card.critical {
+  border-color: #f87171;
+  background-color: #fef2f2;
+}
+
+/* 图表容器样式 */
+.chart-container {
+  width: 100%;
+  overflow: hidden;
+}
+
+.visualization-container {
+  background-color: #ffffff;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* 调试视图样式 */
+.debug-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* 主页样式 */
+.home-page {
+  max-width: 1200px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-top: 2rem;
+  padding-bottom: 2rem;
+}
+
+.welcome-section {
+  background-color: #ffffff;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 2px 0 rgba(0,0,0,0.05);
+  margin-bottom: 2rem;
+  padding: 1.5rem;
+}
+
+.quick-links {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .quick-links {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.link-section {
+  background-color: #ffffff;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 2px 0 rgba(0,0,0,0.05);
+  padding: 1.5rem;
+  height: 100%;
+  transition: all 0.2s ease;
+}
+
+.link-section:hover {
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+}
+
+/* 仪表板概览样式 */
+.dashboard-overview {
+  margin-top: 1.5rem;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .dashboard-overview {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.overview-section {
+  background-color: #f9fafb;
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+}
+
+.overview-section h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  color: hsl(var(--foreground));
+}
+
+.overview-section ul {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.overview-section li {
+  list-style-type: disc;
+  margin-left: 1.25rem;
+}
+
+.overview-section strong {
+  color: hsl(var(--foreground));
+} 

@@ -1,0 +1,90 @@
+/* 主页样式 */
+.home-page {
+  padding: 1.5rem;
+}
+
+.welcome-section {
+  background-color: #ffffff;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 2px 0 rgba(0,0,0,0.05);
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.welcome-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+}
+
+.welcome-description {
+  color: #4b5563;
+  margin-bottom: 1.5rem;
+}
+
+.quick-links {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .quick-links {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.link-section {
+  background-color: #ffffff;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 2px 0 rgba(0,0,0,0.05);
+  padding: 1.5rem;
+}
+
+.link-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+.link-title-blue {
+  color: #2563eb;
+}
+
+.link-title-green {
+  color: #059669;
+}
+
+.link-title-purple {
+  color: #7c3aed;
+}
+
+.link-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.link-blue {
+  color: #3b82f6;
+}
+
+.link-blue:hover {
+  text-decoration: underline;
+}
+
+.link-green {
+  color: #10b981;
+}
+
+.link-green:hover {
+  text-decoration: underline;
+}
+
+.link-purple {
+  color: #8b5cf6;
+}
+
+.link-purple:hover {
+  text-decoration: underline;
+} 

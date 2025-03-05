@@ -1,0 +1,82 @@
+/* 应用容器 */
+.app-container {
+  min-height: 100vh;
+  background-color: hsl(var(--background));
+}
+
+.layout-container {
+  display: flex;
+}
+
+/* 侧边栏样式 */
+.sidebar {
+  display: flex;
+  height: 100vh;
+  width: 16rem;
+  flex-direction: column;
+  position: fixed;
+  border-right: 1px solid hsl(var(--border));
+}
+
+.sidebar-header {
+  padding: 1.5rem;
+}
+
+.app-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.sidebar-nav {
+  flex: 1;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* 导航项样式 */
+.nav-button {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.nav-button-active {
+  background-color: hsl(var(--muted));
+}
+
+.nav-icon {
+  width: 1rem;
+  height: 1rem;
+  margin-right: 0.5rem;
+}
+
+.nav-section {
+  padding-top: 1rem;
+}
+
+.nav-section-title {
+  margin-bottom: 0.5rem;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: hsl(var(--muted-foreground));
+}
+
+.nav-items-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* 主内容区域 */
+.main-content {
+  flex: 1;
+  margin-left: 16rem;
+}
+
+.content-container {
+  height: 100%;
+  padding: 1.5rem;
+} 
