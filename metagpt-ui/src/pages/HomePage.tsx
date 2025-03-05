@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import MonitoringPanel from '../components/MonitoringPanel';
 import '../styles/home.css';
 
 const HomePage: React.FC = () => {
@@ -65,6 +66,20 @@ const HomePage: React.FC = () => {
             </li>
           </ul>
         </div>
+      </div>
+      
+      {/* 添加监控面板 */}
+      <div className="home-monitoring-section">
+        <h2 className="section-title">实时监控状态</h2>
+        <p className="section-description">
+          下面的面板显示系统的实时监控数据，包括性能指标、错误日志和代理活动。
+        </p>
+        <MonitoringPanel 
+          isCollapsed={false} 
+          initialTab="performance" 
+          pollInterval={5000}
+          errorGenerationInterval={20000}
+        />
       </div>
     </div>
   );

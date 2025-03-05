@@ -93,4 +93,173 @@
 
 .overview-list {
   margin-top: 0.75rem;
+}
+
+/* 错误日志查看器样式 */
+.error-log-viewer {
+  background-color: #ffffff;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 2px 0 rgba(0,0,0,0.05);
+  width: 100%;
+}
+
+.error-logs-container {
+  overflow-y: auto;
+}
+
+/* 错误类型标签样式 */
+.error-type-critical {
+  background-color: #fee2e2;
+  color: #b91c1c;
+}
+
+.error-type-warning {
+  background-color: #fef9c3;
+  color: #854d0e;
+}
+
+.error-type-system {
+  background-color: #f3e8ff;
+  color: #6b21a8;
+}
+
+.error-type-agent {
+  background-color: #dbeafe;
+  color: #1e40af;
+}
+
+.error-type-task {
+  background-color: #dcfce7;
+  color: #166534;
+}
+
+/* 监控面板容器 */
+.monitoring-panel {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  margin: 1rem;
+  transition: all 0.3s ease;
+  background-color: #ffffff;
+}
+
+.monitoring-panel.collapsed {
+  max-height: 60px;
+  overflow: hidden;
+}
+
+.monitoring-panel.expanded {
+  max-height: 90vh;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background-color: #f5f5f5;
+  border-bottom: 1px solid #e0e0e0;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+
+.panel-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: #333;
+}
+
+.toggle-button {
+  background-color: #0070f3;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background-color 0.2s;
+}
+
+.toggle-button:hover {
+  background-color: #0051b3;
+}
+
+.panel-content {
+  padding: 1rem;
+  height: calc(90vh - 60px);
+  overflow: auto;
+}
+
+.panel-collapsed-info {
+  padding: 0.5rem 1rem;
+  color: #666;
+  font-style: italic;
+}
+
+/* 监控仪表板样式 */
+.monitoring-dashboard {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.monitoring-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.monitoring-header h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #333;
+}
+
+.system-status {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.6rem;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.metrics-summary {
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.monitoring-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e0e0e0;
+}
+
+.agent-summary {
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.refresh-button {
+  background-color: #f5f5f5;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background-color 0.2s;
+}
+
+.refresh-button:hover {
+  background-color: #e5e5e5;
 } 

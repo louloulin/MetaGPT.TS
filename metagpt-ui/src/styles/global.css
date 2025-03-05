@@ -1,0 +1,159 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* 主色调 */
+  --color-primary: 37 99 235; /* blue-600 */
+  --color-primary-light: 96 165 250; /* blue-400 */
+  --color-primary-dark: 29 78 216; /* blue-700 */
+  
+  /* 次要色调 */
+  --color-secondary: 124 58 237; /* violet-600 */
+  
+  /* 中性色调 */
+  --color-neutral-50: 249 250 251;
+  --color-neutral-100: 243 244 246;
+  --color-neutral-200: 229 231 235;
+  --color-neutral-300: 209 213 219;
+  --color-neutral-400: 156 163 175;
+  --color-neutral-500: 107 114 128;
+  --color-neutral-600: 75 85 99;
+  --color-neutral-700: 55 65 81;
+  --color-neutral-800: 31 41 55;
+  --color-neutral-900: 17 24 39;
+  
+  /* 成功状态 */
+  --color-success: 34 197 94; /* green-500 */
+  
+  /* 警告状态 */
+  --color-warning: 234 179 8; /* yellow-500 */
+  
+  /* 错误状态 */
+  --color-error: 239 68 68; /* red-500 */
+  
+  /* 信息状态 */
+  --color-info: 6 182 212; /* cyan-500 */
+  
+  /* 圆角半径 */
+  --radius-sm: 0.125rem;
+  --radius-md: 0.25rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 1rem;
+  --radius-full: 9999px;
+  
+  /* 动画时间 */
+  --transition-fast: 0.15s;
+  --transition-normal: 0.3s;
+  --transition-slow: 0.5s;
+  
+  /* 阴影 */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+}
+
+/* 基础样式重置和通用设置 */
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  body {
+    @apply text-neutral-800 bg-neutral-50;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  
+  /* 滚动条样式 */
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+  
+  ::-webkit-scrollbar-track {
+    @apply bg-neutral-100;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    @apply bg-neutral-300 rounded-full;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-neutral-400;
+  }
+  
+  /* 聚焦状态 */
+  :focus-visible {
+    @apply outline-none ring-2 ring-primary ring-offset-2;
+  }
+}
+
+/* 自定义组件样式 */
+@layer components {
+  /* 通用卡片样式 */
+  .card {
+    @apply bg-white rounded-lg border border-neutral-200 shadow-sm;
+  }
+  
+  /* 按钮基础样式 */
+  .btn {
+    @apply inline-flex items-center justify-center rounded-md font-medium transition-colors
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2
+           disabled:pointer-events-none disabled:opacity-50;
+  }
+  
+  /* 输入框基础样式 */
+  .input {
+    @apply flex h-10 w-full rounded-md border border-neutral-300 bg-transparent py-2 px-3
+           text-sm placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-offset-0
+           focus:ring-primary disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  
+  /* Tooltip样式增强 */
+  .tooltip-top {
+    @apply after:absolute after:left-1/2 after:-translate-x-1/2 after:bottom-0 after:translate-y-full
+           after:border-8 after:border-transparent after:border-t-gray-900;
+  }
+  
+  .tooltip-bottom {
+    @apply after:absolute after:left-1/2 after:-translate-x-1/2 after:top-0 after:-translate-y-full
+           after:border-8 after:border-transparent after:border-b-gray-900;
+  }
+  
+  .tooltip-left {
+    @apply after:absolute after:top-1/2 after:-translate-y-1/2 after:right-0 after:translate-x-full
+           after:border-8 after:border-transparent after:border-l-gray-900;
+  }
+  
+  .tooltip-right {
+    @apply after:absolute after:top-1/2 after:-translate-y-1/2 after:left-0 after:-translate-x-full
+           after:border-8 after:border-transparent after:border-r-gray-900;
+  }
+}
+
+/* 工具类 */
+@layer utilities {
+  /* 文字截断 */
+  .truncate-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  
+  .truncate-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  
+  /* 动画类 */
+  .animate-spin-slow {
+    animation: spin 3s linear infinite;
+  }
+  
+  .animate-pulse-slow {
+    animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+} 

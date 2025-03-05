@@ -4,6 +4,7 @@ import { useMonitoring } from '../monitoring/MonitoringProvider';
 import PerformanceMonitor from '../monitoring/PerformanceMonitor';
 import ThoughtVisualizer from '../monitoring/ThoughtVisualizer';
 import DebugTools, { DebugAction } from '../monitoring/DebugTools';
+import ErrorLogViewer from '../monitoring/ErrorLogViewer';
 import '../styles/monitoring.css';
 
 const MonitoringDashboard: React.FC = () => {
@@ -53,6 +54,21 @@ const MonitoringDashboard: React.FC = () => {
               <path d="m14.5 4-5 16"/>
             </svg>
             调试工具
+          </span>
+        </Link>
+        <Link 
+          to="/monitoring/logs" 
+          className={`tab-item ${isActive('logs')}`}
+        >
+          <span className="tab-content">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 3v4a1 1 0 0 0 1 1h4" />
+              <path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z" />
+              <line x1="9" y1="9" x2="10" y2="9" />
+              <line x1="9" y1="13" x2="15" y2="13" />
+              <line x1="9" y1="17" x2="15" y2="17" />
+            </svg>
+            错误日志
           </span>
         </Link>
       </nav>
@@ -207,6 +223,21 @@ const MonitoringDashboard: React.FC = () => {
                   onAction={(action: DebugAction) => {
                     console.log(`执行操作: ${action.type}`, { agentId: action.agentId, taskId: action.taskId });
                     return Promise.resolve();
+                  }}
+                />
+              </div>
+            } />
+            <Route path="logs" element={
+              <div className="debug-view">
+                <h2 className="section-title">错误日志查看器</h2>
+                <p className="section-description">
+                  查看和分析系统中的错误和警告信息，帮助识别和解决问题。
+                </p>
+                <ErrorLogViewer 
+                  title="系统错误日志"
+                  height={500}
+                  onErrorClick={(error) => {
+                    console.log('查看错误详情:', error);
                   }}
                 />
               </div>
