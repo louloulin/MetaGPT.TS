@@ -166,17 +166,18 @@ export abstract class SerializationMixin implements Serializable {
    * 获取可序列化的数据对象
    */
   toSerializable(): Record<string, any> {
-    const constructor = this.constructor;
-    const metadata = serializationRegistry.get(constructor);
     const result: Record<string, any> = {};
 
     // 添加类型信息
-    result.__type = constructor.name;
+    result.__type = this.constructor.name;
     result.__version = this.getVersion();
 
-    if (metadata?.fields) {
+    // 收集所有继承链上的序列化字段
+    const allFields = this.getAllSerializableFields();
+
+    if (allFields.size > 0) {
       // 使用装饰器配置的字段
-      for (const [key, config] of metadata.fields) {
+      for (const [key, config] of allFields) {
         if (!config.serialize) continue;
 
         const value = (this as any)[key];
@@ -199,6 +200,29 @@ export abstract class SerializationMixin implements Serializable {
     }
 
     return result;
+  }
+
+  /**
+   * 获取所有可序列化字段（包括继承链）
+   */
+  private getAllSerializableFields(): Map<string | symbol, FieldConfig> {
+    const allFields = new Map<string | symbol, FieldConfig>();
+
+    // 遍历原型链
+    let currentProto = this.constructor;
+    while (currentProto && currentProto !== SerializationMixin) {
+      const metadata = serializationRegistry.get(currentProto);
+      if (metadata?.fields) {
+        for (const [key, config] of metadata.fields) {
+          if (!allFields.has(key)) {
+            allFields.set(key, config);
+          }
+        }
+      }
+      currentProto = Object.getPrototypeOf(currentProto);
+    }
+
+    return allFields;
   }
 
   /**
@@ -318,13 +342,13 @@ export class Deserializer {
     // 移除元数据
     const { __type, __version, ...cleanData } = data;
 
-    // 获取序列化元数据
-    const metadata = serializationRegistry.get(targetClass);
+    // 获取所有序列化字段（包括继承链）
+    const allFields = this.getAllDeserializableFields(targetClass);
     const deserializedData: Record<string, any> = {};
 
-    if (metadata?.fields) {
+    if (allFields.size > 0) {
       // 使用装饰器配置反序列化
-      for (const [key, config] of metadata.fields) {
+      for (const [key, config] of allFields) {
         if (!config.serialize) continue;
 
         const fieldName = config.alias || String(key);
@@ -348,6 +372,7 @@ export class Deserializer {
     Object.assign(instance, deserializedData);
 
     // 验证数据
+    const metadata = serializationRegistry.get(targetClass);
     if (metadata?.schema) {
       try {
         metadata.schema.parse(instance);
@@ -357,6 +382,29 @@ export class Deserializer {
     }
 
     return instance;
+  }
+
+  /**
+   * 获取所有可反序列化字段（包括继承链）
+   */
+  private static getAllDeserializableFields(targetClass: Function): Map<string | symbol, FieldConfig> {
+    const allFields = new Map<string | symbol, FieldConfig>();
+
+    // 遍历原型链
+    let currentProto = targetClass;
+    while (currentProto && currentProto !== SerializationMixin) {
+      const metadata = serializationRegistry.get(currentProto);
+      if (metadata?.fields) {
+        for (const [key, config] of metadata.fields) {
+          if (!allFields.has(key)) {
+            allFields.set(key, config);
+          }
+        }
+      }
+      currentProto = Object.getPrototypeOf(currentProto);
+    }
+
+    return allFields;
   }
 
   /**

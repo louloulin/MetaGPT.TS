@@ -1,3 +1,6 @@
+// 基础架构
+export * from './base/serialization';
+
 // 基础类型定义
 export * from './types/message';
 export * from './types/role';
