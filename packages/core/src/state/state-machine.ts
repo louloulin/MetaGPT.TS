@@ -173,10 +173,10 @@ export class StateMachine<TContext = any> extends SerializationMixin {
 
     // 执行状态转换
     this.transitionPromise = this.executeTransition(transition, event);
-    await this.transitionPromise;
+    const transitionResult = await this.transitionPromise;
     this.transitionPromise = null;
 
-    return true;
+    return transitionResult;
   }
 
   /**
@@ -268,7 +268,7 @@ export class StateMachine<TContext = any> extends SerializationMixin {
   private async executeTransition(
     transition: StateTransition<TContext>,
     event: StateMachineEvent
-  ): Promise<void> {
+  ): Promise<boolean> {
     const fromState = this.currentState;
     const toState = transition.target;
     const startTime = Date.now();
@@ -283,7 +283,7 @@ export class StateMachine<TContext = any> extends SerializationMixin {
           if (this.options.debug) {
             logger.debug(`[StateMachine:${this.id}] Transition guard blocked ${fromState} -> ${toState}`);
           }
-          return;
+          return false;
         }
       }
 
@@ -318,6 +318,8 @@ export class StateMachine<TContext = any> extends SerializationMixin {
       if (this.options.debug) {
         logger.debug(`[StateMachine:${this.id}] Transitioned ${fromState} -> ${toState} (${duration}ms)`);
       }
+
+      return true;
 
     } catch (error) {
       this.emitEvent('transition:failed', fromState, toState, event, error as Error);
