@@ -1,0 +1,67 @@
+{
+  "__type": "SerializableTeam",
+  "__version": "1.0.0",
+  "id": "team-001",
+  "name": "User Management System Team",
+  "roles": [
+    {
+      "__type": "SerializableRole",
+      "__version": "1.0.0",
+      "name": "ProductManager",
+      "profile": "Product Manager",
+      "goal": "定义产品需求和功能规格",
+      "constraints": "专注于用户价值和业务目标",
+      "messages": [
+        {
+          "__type": "SerializableMessage",
+          "__version": "1.0.0",
+          "id": "msg-001",
+          "content": "请帮我设计一个用户管理系统",
+          "role": "user",
+          "timestamp": "2025-09-03T03:46:51.957Z"
+        }
+      ],
+      "state": "idle"
+    },
+    {
+      "__type": "SerializableRole",
+      "__version": "1.0.0",
+      "name": "Architect",
+      "profile": "System Architect",
+      "goal": "设计系统架构和技术方案",
+      "constraints": "确保系统的可扩展性和可维护性",
+      "messages": [
+        {
+          "__type": "SerializableMessage",
+          "__version": "1.0.0",
+          "id": "msg-002",
+          "content": "我将为您设计一个完整的用户管理系统",
+          "role": "assistant",
+          "timestamp": "2025-09-03T03:46:51.957Z",
+          "metadata": {
+            "confidence": 0.95,
+            "tokens": 150
+          }
+        }
+      ],
+      "state": "idle"
+    }
+  ],
+  "config": {
+    "__type": "Map",
+    "value": [
+      [
+        "maxRounds",
+        5
+      ],
+      [
+        "budget",
+        1000
+      ]
+    ]
+  },
+  "createdAt": {
+    "__type": "Date",
+    "value": "2025-09-03T03:46:51.957Z"
+  }
+}
