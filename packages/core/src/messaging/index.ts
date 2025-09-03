@@ -91,13 +91,13 @@ export class MessageRoutingSystem {
    * 创建并注册路由器
    */
   createRouter(config?: Partial<RouterConfig>): MessageRouter {
-    const router = RouterFactory.createStandard(config);
+    const router = new MessageRouter(config);
     this.routers.set(router.getConfig().id, router);
-    
+
     if (!this.defaultRouter) {
       this.defaultRouter = router;
     }
-    
+
     return router;
   }
 
@@ -253,21 +253,37 @@ export const defaultRoutingSystem = new MessageRoutingSystem();
  * 便捷函数：创建标准路由器
  */
 export function createMessageRouter(config?: Partial<RouterConfig>): MessageRouter {
-  return RouterFactory.createStandard(config);
+  return new MessageRouter(config);
 }
 
 /**
  * 便捷函数：创建高性能路由器
  */
 export function createHighPerformanceRouter(config?: Partial<RouterConfig>): MessageRouter {
-  return RouterFactory.createHighPerformance(config);
+  return new MessageRouter({
+    maxConcurrency: 50,
+    messageTimeout: 10000,
+    enableMetrics: false,
+    deadLetterQueue: {
+      enabled: false,
+      maxSize: 0,
+      ttl: 0,
+    },
+    ...config,
+  });
 }
 
 /**
  * 便捷函数：创建调试路由器
  */
 export function createDebugRouter(config?: Partial<RouterConfig>): MessageRouter {
-  return RouterFactory.createDebug(config);
+  return new MessageRouter({
+    debug: true,
+    maxConcurrency: 1,
+    messageTimeout: 60000,
+    enableMetrics: true,
+    ...config,
+  });
 }
 
 /**

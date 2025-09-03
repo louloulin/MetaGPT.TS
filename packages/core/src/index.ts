@@ -4,6 +4,9 @@ export * from './base/serialization';
 // 状态管理系统
 export * from './state';
 
+// 消息路由系统
+export * from './messaging';
+
 // 基础类型定义
 export * from './types/message';
 export * from './types/role';

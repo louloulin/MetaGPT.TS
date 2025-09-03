@@ -9,7 +9,7 @@
  */
 
 import {
-  createMessageRouter,
+  MessageRouter,
   MessageFactory,
   RouteRuleFactory,
   ContentFilters,
@@ -21,6 +21,7 @@ import {
   RouterMiddlewares,
   MessagePriority,
   MessageRoutingUtils,
+  createRouterId,
   type RoutableMessage,
   type MessageHandler,
 } from '../index';
@@ -34,7 +35,8 @@ export async function messageRoutingExample() {
   // 1. 创建高性能消息路由器
   console.log('\n📝 创建消息路由器:');
   
-  const router = createMessageRouter({
+  const router = new MessageRouter({
+    id: createRouterId('example-router'),
     name: 'ExampleRouter',
     debug: true,
     maxConcurrency: 20,
