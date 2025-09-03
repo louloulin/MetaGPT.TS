@@ -116,7 +116,7 @@ export class MessageRouter<T extends RoutableMessage = RoutableMessage>
   private readonly deadLetterQueue: T[] = [];
   
   @SerializeField({ serialize: false })
-  private isRunning = false;
+  private running = false;
 
   constructor(config: Partial<RouterConfig> = {}) {
     super();
@@ -159,13 +159,13 @@ export class MessageRouter<T extends RoutableMessage = RoutableMessage>
    * 启动路由器
    */
   start(): void {
-    if (this.isRunning) {
+    if (this.running) {
       logger.warn(`[MessageRouter:${this.config.id}] Already running`);
       return;
     }
 
-    this.isRunning = true;
-    
+    this.running = true;
+
     if (this.config.debug) {
       logger.debug(`[MessageRouter:${this.config.id}] Started`);
     }
@@ -175,12 +175,12 @@ export class MessageRouter<T extends RoutableMessage = RoutableMessage>
    * 停止路由器
    */
   stop(): void {
-    if (!this.isRunning) {
+    if (!this.running) {
       return;
     }
 
-    this.isRunning = false;
-    
+    this.running = false;
+
     if (this.config.debug) {
       logger.debug(`[MessageRouter:${this.config.id}] Stopped`);
     }
@@ -190,7 +190,7 @@ export class MessageRouter<T extends RoutableMessage = RoutableMessage>
    * 路由消息
    */
   async route(message: T): Promise<RouteResult<T>> {
-    if (!this.isRunning) {
+    if (!this.running) {
       throw new Error('Router is not running');
     }
 
@@ -254,9 +254,9 @@ export class MessageRouter<T extends RoutableMessage = RoutableMessage>
    */
   addRule(rule: RouteRule<T>): void {
     this.rules.set(rule.id, rule);
-    this.updateMetrics('activeRules', this.rules.size);
+    this.updateMetrics('activeRules', this.rules.size, false);
     this.emitEvent('rule:added', rule);
-    
+
     if (this.config.debug) {
       logger.debug(`[MessageRouter:${this.config.id}] Added rule: ${rule.id}`);
     }
@@ -268,9 +268,9 @@ export class MessageRouter<T extends RoutableMessage = RoutableMessage>
   removeRule(ruleId: string): boolean {
     const removed = this.rules.delete(ruleId);
     if (removed) {
-      this.updateMetrics('activeRules', this.rules.size);
+      this.updateMetrics('activeRules', this.rules.size, false);
       this.emitEvent('rule:removed', ruleId);
-      
+
       if (this.config.debug) {
         logger.debug(`[MessageRouter:${this.config.id}] Removed rule: ${ruleId}`);
       }
@@ -315,6 +315,20 @@ export class MessageRouter<T extends RoutableMessage = RoutableMessage>
     if (this.config.debug) {
       logger.debug(`[MessageRouter:${this.config.id}] Added middleware`);
     }
+  }
+
+  /**
+   * 获取路由器配置
+   */
+  getConfig(): RouterConfig {
+    return { ...this.config };
+  }
+
+  /**
+   * 检查路由器是否运行
+   */
+  isRunning(): boolean {
+    return this.running;
   }
 
   /**
@@ -482,15 +496,19 @@ export class MessageRouter<T extends RoutableMessage = RoutableMessage>
   /**
    * 更新指标
    */
-  private updateMetrics(key: keyof RouterMetrics, value: number): void {
+  private updateMetrics(key: keyof RouterMetrics, value: number, increment: boolean = true): void {
     if (!this.config.enableMetrics) {
       return;
     }
 
     if (typeof this.metrics[key] === 'number') {
-      (this.metrics as any)[key] = value;
+      if (increment) {
+        (this.metrics as any)[key] += value;
+      } else {
+        (this.metrics as any)[key] = value;
+      }
     }
-    
+
     this.metrics.lastUpdated = new Date();
     this.emitEvent('metrics:updated', this.metrics);
   }

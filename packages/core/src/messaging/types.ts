@@ -354,6 +354,8 @@ export const RoutableMessageSchema = z.object({
   expiresAt: z.date().optional(),
   retryCount: z.number(),
   maxRetries: z.number(),
+  metadata: z.any().optional(),
+  instructContent: z.any().optional(),
 });
 
 export const RouteRuleSchema = z.object({
