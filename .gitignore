@@ -11,9 +11,9 @@ lerna-debug.log*
 .pnpm-debug.log*
 
 # Caches
-
+source/
 .cache
-
+plan*
 # Diagnostic reports (https://nodejs.org/api/report.html)
 
 report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
