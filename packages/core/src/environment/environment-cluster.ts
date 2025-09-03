@@ -138,6 +138,9 @@ export class EnvironmentCluster extends EventEmitter {
     await Promise.all(stopPromises);
     this.nodes.clear();
 
+    // 移除所有事件监听器
+    this.removeAllListeners();
+
     this.emit('cluster:stopped', this.config.name);
     logger.info(`Environment cluster stopped: ${this.config.name}`);
   }

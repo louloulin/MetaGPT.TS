@@ -395,9 +395,7 @@ async function comprehensiveIntegrationExample(): Promise<void> {
 
   // 分配角色到集群
   for (const role of team) {
-    await pluginManager.executeHook('beforeRoleAdd', cluster as any, role);
     const envId = await cluster.addRoleToCluster(role);
-    await pluginManager.executeHook('afterRoleAdd', cluster as any, role);
     console.log(`👤 ${role.name} 分配到环境`);
   }
 
@@ -411,9 +409,7 @@ async function comprehensiveIntegrationExample(): Promise<void> {
   ];
 
   for (const message of projectMessages) {
-    await pluginManager.executeHook('beforeMessageSend', cluster as any, message);
     await cluster.broadcastMessage(message);
-    await pluginManager.executeHook('afterMessageSend', cluster as any, message);
     console.log(`📨 发送消息: ${message.content.substring(0, 30)}...`);
     await new Promise(resolve => setTimeout(resolve, 100));
   }
@@ -454,7 +450,14 @@ async function main(): Promise<void> {
     console.log('  ✅ 环境适配器 - 统一的环境管理接口');
     console.log('  ✅ 环境集群 - 负载均衡和故障转移');
     console.log('  ✅ 系统集成 - 无缝的组件协作');
-    
+
+    // 确保程序正常退出
+    console.log('\n🔄 正在清理资源并退出...');
+    setTimeout(() => {
+      console.log('✅ 程序已正常退出');
+      process.exit(0);
+    }, 100);
+
   } catch (error) {
     console.error('❌ 示例执行失败:', error);
     process.exit(1);

@@ -152,6 +152,11 @@ export class PerformanceMonitorPlugin extends BaseEnvironmentPlugin {
     this.stopMonitoring();
   }
 
+  protected async onDestroy(): Promise<void> {
+    this.stopMonitoring();
+    this.performanceData.clear();
+  }
+
   getHooks(): PluginHooks {
     return {
       afterEnvironmentStart: async (environment) => {
