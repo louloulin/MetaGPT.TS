@@ -1,0 +1,15 @@
+{
+  "description": "Test environment for unit tests",
+  "messages": [
+    {
+      "id": "4ab78fcb-1bb7-4112-ba9a-53d3c10a5237",
+      "content": "Test message",
+      "instructContent": null,
+      "role": "user",
+      "causedBy": "UserRequirement",
+      "sentFrom": "",
+      "sendTo": {},
+      "timestamp": "2025-09-03T07:54:53.143Z"
+    }
+  ]
+}
