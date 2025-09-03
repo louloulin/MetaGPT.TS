@@ -1,0 +1,38 @@
+{
+  "stateMachineId": "role-pm-001",
+  "totalTransitions": 3,
+  "timeline": [
+    {
+      "timestamp": 1756882136773,
+      "from": "idle",
+      "to": "observing",
+      "event": "OBSERVE",
+      "duration": 0
+    },
+    {
+      "timestamp": 1756882136774,
+      "from": "observing",
+      "to": "thinking",
+      "event": "THINK",
+      "duration": 0
+    },
+    {
+      "timestamp": 1756882136774,
+      "from": "thinking",
+      "to": "acting",
+      "event": "ACT",
+      "duration": 0
+    }
+  ],
+  "stateFrequency": {
+    "idle": 1,
+    "observing": 2,
+    "thinking": 2,
+    "acting": 1
+  },
+  "eventFrequency": {
+    "OBSERVE": 1,
+    "THINK": 1,
+    "ACT": 1
+  }
+}

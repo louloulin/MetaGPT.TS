@@ -1,6 +1,9 @@
 // 基础架构
 export * from './base/serialization';
 
+// 状态管理系统
+export * from './state';
+
 // 基础类型定义
 export * from './types/message';
 export * from './types/role';

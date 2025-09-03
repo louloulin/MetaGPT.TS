@@ -1,0 +1,103 @@
+{
+  "stateMachineId": "role-arch-001",
+  "currentState": "observing",
+  "timestamp": 1756883154755,
+  "done": false,
+  "context": {
+    "name": "Architect",
+    "messageQueue": [
+      {
+        "id": "msg-002",
+        "content": "基于PRD设计系统架构",
+        "role": "system",
+        "timestamp": "2025-09-03T06:48:56.774Z"
+      }
+    ],
+    "retryCount": 1,
+    "maxRetries": 3,
+    "stats": {
+      "observeCount": 2,
+      "thinkCount": 1,
+      "actCount": 0,
+      "reactCount": 0,
+      "errorCount": 1
+    },
+    "data": {}
+  },
+  "states": [
+    "observing",
+    "idle",
+    "thinking",
+    "error"
+  ],
+  "transitions": [
+    {
+      "from": "idle",
+      "to": "observing",
+      "event": "OBSERVE",
+      "count": 1
+    },
+    {
+      "from": "observing",
+      "to": "thinking",
+      "event": "THINK",
+      "count": 1
+    },
+    {
+      "from": "thinking",
+      "to": "error",
+      "event": "ERROR",
+      "count": 1
+    },
+    {
+      "from": "error",
+      "to": "observing",
+      "event": "RESUME",
+      "count": 1
+    }
+  ],
+  "history": [
+    {
+      "timestamp": 1756882136774,
+      "from": "idle",
+      "to": "observing",
+      "event": "OBSERVE",
+      "eventData": {
+        "type": "OBSERVE"
+      },
+      "duration": 0
+    },
+    {
+      "timestamp": 1756882136774,
+      "from": "observing",
+      "to": "thinking",
+      "event": "THINK",
+      "eventData": {
+        "type": "THINK"
+      },
+      "duration": 0
+    },
+    {
+      "timestamp": 1756882136774,
+      "from": "thinking",
+      "to": "error",
+      "event": "ERROR",
+      "eventData": {
+        "type": "ERROR",
+        "error": {}
+      },
+      "duration": 0
+    },
+    {
+      "timestamp": 1756882137776,
+      "from": "error",
+      "to": "observing",
+      "event": "RESUME",
+      "eventData": {
+        "type": "RESUME"
+      },
+      "duration": 0
+    }
+  ],
+  "meta": {}
+}

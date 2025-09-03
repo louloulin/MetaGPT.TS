@@ -57,7 +57,7 @@ export {
  * 创建增强的角色状态机
  * 集成持久化和可视化功能
  */
-export function createEnhancedRoleStateMachine(
+export async function createEnhancedRoleStateMachine(
   roleId: string,
   context: import('./types').RoleContext,
   options: {
@@ -66,7 +66,7 @@ export function createEnhancedRoleStateMachine(
     visualization?: import('./types').StateVisualizationConfig;
     stateMachine?: import('./role-state-machine').RoleStateMachineOptions;
   } = {}
-): RoleStateMachine {
+): Promise<RoleStateMachine> {
   const {
     type = 'standard',
     persistence,
@@ -74,9 +74,14 @@ export function createEnhancedRoleStateMachine(
     stateMachine: stateMachineOptions,
   } = options;
 
+  // 导入所需的类
+  const { RoleStateMachineFactory } = await import('./role-state-machine');
+  const { StatePersistenceManager } = await import('./persistence');
+  const { StateVisualizationManager } = await import('./visualization');
+
   // 创建状态机
   let stateMachine: RoleStateMachine;
-  
+
   switch (type) {
     case 'learning':
       stateMachine = RoleStateMachineFactory.createLearning(roleId, context, stateMachineOptions);

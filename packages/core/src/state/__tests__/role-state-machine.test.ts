@@ -107,13 +107,21 @@ describe('RoleStateMachine 测试', () => {
     });
 
     it('应该能够从思考状态转换到行动状态', async () => {
+      // 添加消息到队列以满足守卫条件
+      roleStateMachine.addMessage({
+        id: 'test-msg-2',
+        content: 'Test message for action',
+        role: 'user',
+        timestamp: new Date(),
+      } as any);
+
       // 设置当前动作
       const mockAction = { id: 'test-action', name: 'TestAction' } as any;
       roleStateMachine.setCurrentAction(mockAction);
 
       await roleStateMachine.sendRoleEvent({ type: RoleEvents.OBSERVE });
       await roleStateMachine.sendRoleEvent({ type: RoleEvents.THINK });
-      
+
       const success = await roleStateMachine.sendRoleEvent({
         type: RoleEvents.ACT,
         action: mockAction,
@@ -121,7 +129,7 @@ describe('RoleStateMachine 测试', () => {
 
       expect(success).toBe(true);
       expect(roleStateMachine.getCurrentState()).toBe(RoleStates.ACTING);
-      
+
       const stats = roleStateMachine.getStats();
       expect(stats.actCount).toBe(1);
     });
@@ -309,20 +317,24 @@ describe('RoleStateMachine 测试', () => {
     it('应该正确跟踪统计信息', async () => {
       // 执行一系列操作
       await roleStateMachine.sendRoleEvent({ type: RoleEvents.OBSERVE });
+
+      // 回到idle状态再次observe
+      await roleStateMachine.sendRoleEvent({ type: RoleEvents.COMPLETE });
       await roleStateMachine.sendRoleEvent({ type: RoleEvents.OBSERVE });
-      
+
       roleStateMachine.addMessage({
         id: 'msg1',
         content: 'Test',
         role: 'user',
         timestamp: new Date(),
       } as any);
-      
+
       await roleStateMachine.sendRoleEvent({ type: RoleEvents.THINK });
+      await roleStateMachine.sendRoleEvent({ type: RoleEvents.COMPLETE });
       await roleStateMachine.sendRoleEvent({ type: RoleEvents.REACT, message: {} as any });
 
       const stats = roleStateMachine.getStats();
-      
+
       expect(stats.observeCount).toBe(2);
       expect(stats.thinkCount).toBe(1);
       expect(stats.reactCount).toBe(1);

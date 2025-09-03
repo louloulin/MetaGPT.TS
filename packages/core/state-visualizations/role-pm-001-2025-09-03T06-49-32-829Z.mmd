@@ -1,0 +1,11 @@
+stateDiagram-v2
+
+    acting : acting (Current)
+    idle : idle
+    observing : observing
+    thinking : thinking
+
+    idle --> observing : OBSERVE
+    observing --> thinking : THINK
+    thinking --> acting : ACT
+    [*] --> observing

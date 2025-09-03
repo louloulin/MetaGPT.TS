@@ -117,6 +117,15 @@ export class RoleStateMachineFactory {
               target: createStateId(RoleStates.SUSPENDED),
               description: '暂停角色',
             },
+            [createEventType(RoleEvents.ERROR)]: {
+              target: createStateId(RoleStates.ERROR),
+              effect: async (ctx, event) => {
+                if (event.data && isRoleEventOfType(event.data as RoleEvent, RoleEvents.ERROR)) {
+                  ctx.error = event.data.error;
+                }
+              },
+              description: '进入错误状态',
+            },
           },
         },
 
@@ -141,6 +150,11 @@ export class RoleStateMachineFactory {
             },
             [createEventType(RoleEvents.ERROR)]: {
               target: createStateId(RoleStates.ERROR),
+              effect: async (ctx, event) => {
+                if (event.data && isRoleEventOfType(event.data as RoleEvent, RoleEvents.ERROR)) {
+                  ctx.error = event.data.error;
+                }
+              },
               description: '观察过程出错',
             },
           },
@@ -251,11 +265,8 @@ export class RoleStateMachineFactory {
           id: createStateId(RoleStates.ERROR),
           name: 'Error',
           description: '错误状态，需要处理或恢复',
-          onEntry: async (ctx, event) => {
+          onEntry: async (ctx) => {
             ctx.stats.errorCount++;
-            if (isRoleEventOfType(event as RoleEvent, RoleEvents.ERROR)) {
-              ctx.error = event.error;
-            }
             logger.error(`[${ctx.name}] Entered error state (count: ${ctx.stats.errorCount})`);
           },
           transitions: {

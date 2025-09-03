@@ -1,0 +1,64 @@
+{
+  "value": "acting",
+  "context": {
+    "name": "ProductManager",
+    "messageQueue": [
+      {
+        "id": "msg-001",
+        "content": "需要设计一个用户管理系统",
+        "role": "user",
+        "timestamp": "2025-09-03T06:48:56.773Z"
+      }
+    ],
+    "retryCount": 0,
+    "maxRetries": 3,
+    "stats": {
+      "observeCount": 1,
+      "thinkCount": 1,
+      "actCount": 1,
+      "reactCount": 0,
+      "errorCount": 0
+    },
+    "data": {},
+    "currentAction": {
+      "id": "write-prd",
+      "name": "WritePRD",
+      "description": "编写产品需求文档"
+    }
+  },
+  "history": [
+    {
+      "timestamp": 1756882136773,
+      "from": "idle",
+      "to": "observing",
+      "event": "OBSERVE",
+      "eventData": {
+        "type": "OBSERVE"
+      },
+      "duration": 0
+    },
+    {
+      "timestamp": 1756882136774,
+      "from": "observing",
+      "to": "thinking",
+      "event": "THINK",
+      "eventData": {
+        "type": "THINK"
+      },
+      "duration": 0
+    },
+    {
+      "timestamp": 1756882136774,
+      "from": "thinking",
+      "to": "acting",
+      "event": "ACT",
+      "eventData": {
+        "type": "ACT"
+      },
+      "duration": 0
+    }
+  ],
+  "done": false,
+  "meta": {},
+  "timestamp": 1756883221642
+}

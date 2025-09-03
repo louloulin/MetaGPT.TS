@@ -1,0 +1,26 @@
+{
+  "stateMachineId": "role-arch-001",
+  "currentState": "idle",
+  "timestamp": 1756882136772,
+  "done": false,
+  "context": {
+    "name": "Architect",
+    "messageQueue": [],
+    "retryCount": 0,
+    "maxRetries": 3,
+    "stats": {
+      "observeCount": 0,
+      "thinkCount": 0,
+      "actCount": 0,
+      "reactCount": 0,
+      "errorCount": 0
+    },
+    "data": {}
+  },
+  "states": [
+    "idle"
+  ],
+  "transitions": [],
+  "history": [],
+  "meta": {}
+}
