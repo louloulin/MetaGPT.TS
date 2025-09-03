@@ -5,6 +5,28 @@
 
 export { BaseAction } from './base-action';
 
+// Action orchestration system
+export {
+  ActionNode,
+  ActionNodeStatus,
+  ActionNodeMode,
+  FillMode,
+  ReviewMode,
+  ReviseMode,
+  type ActionNodeConfig,
+  type ActionNodeResult,
+  type ActionNodeExecutionContext
+} from './action-node';
+
+export {
+  ActionOrchestrator,
+  OrchestrationMode,
+  OrchestrationStatus,
+  type OrchestrationConfig,
+  type OrchestrationResult,
+  type ExecutionRecord
+} from './action-orchestrator';
+
 // Code and product related actions
 export { WriteCodeAction as WriteCode } from './write-code';
 // Temporarily commented out due to missing module

@@ -24,6 +24,8 @@ export * from './roles/tutorial-assistant';
 
 // 动作实现
 export * from './actions/base-action';
+export * from './actions/action-node';
+export * from './actions/action-orchestrator';
 export * from './actions/analyze-task';
 export * from './actions/write-tutorial';
 
