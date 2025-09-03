@@ -1,15 +1,11 @@
-import { z } from 'zod';
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
-import { SerializationMixin } from '../base/serialization';
-import { RoleStateMachine } from '../state/role-state-machine';
-import { MessageRouter } from '../messaging/router';
 import { logger } from '../utils/logger';
-import type {
-  Tool,
-  ToolConfig,
-  ToolContext,
-  ToolResult,
+import type { 
+  Tool, 
+  ToolConfig, 
+  ToolContext, 
+  ToolResult, 
   ToolId,
   ToolType,
   ToolStateType,
@@ -19,19 +15,15 @@ import type {
   ToolEvents
 } from '../types/tool';
 import {
-  ToolContextSchema,
-  ToolResultSchema,
-  ToolConfigSchema,
   ToolState,
   ToolPriority
 } from '../types/tool';
 
 /**
- * 增强的工具基类
- * 集成序列化、状态管理、消息路由等核心系统
- * 充分利用TypeScript高级特性
+ * 简化的工具基类
+ * 提供核心功能而不依赖复杂的外部系统
  */
-export abstract class BaseTool extends SerializationMixin implements Tool {
+export abstract class SimpleBaseTool implements Tool {
   readonly id: ToolId;
   readonly name: string;
   readonly description: string;
@@ -39,22 +31,17 @@ export abstract class BaseTool extends SerializationMixin implements Tool {
   readonly category: string;
   readonly type: ToolType;
   readonly context: ToolContext;
-
+  
   protected _enabled: boolean = true;
   protected _state: ToolStateType = ToolState.IDLE;
-  protected _stateMachine: RoleStateMachine<ToolStateType>;
   protected _eventEmitter: EventEmitter;
-  protected _messageRouter: MessageRouter;
   protected _metrics: ToolMetrics;
   protected _createdAt: Date;
   protected _lastExecutedAt?: Date;
   protected _tags: Set<string>;
-  protected _executionPromise?: Promise<ToolResult>;
   protected _abortController?: AbortController;
 
   constructor(config: ToolConfig) {
-    super();
-
     // 应用默认值并验证配置
     const configWithDefaults = {
       priority: ToolPriority.NORMAL,
@@ -66,8 +53,8 @@ export abstract class BaseTool extends SerializationMixin implements Tool {
       metadata: {},
       ...config,
     };
-
-    const validConfig = ToolConfigSchema.parse(configWithDefaults);
+    
+    const validConfig = configWithDefaults;
 
     // 初始化基本属性
     this.id = (validConfig.id || `tool-${uuidv4()}`) as ToolId;
@@ -81,7 +68,7 @@ export abstract class BaseTool extends SerializationMixin implements Tool {
     this._tags = new Set(validConfig.tags || []);
 
     // 构建增强的上下文
-    this.context = ToolContextSchema.parse({
+    this.context = {
       id: this.id,
       name: this.name,
       description: this.description,
@@ -98,39 +85,11 @@ export abstract class BaseTool extends SerializationMixin implements Tool {
         failureCount: 0,
       },
       metadata: validConfig.metadata || {},
-    });
-
-    // 初始化状态机
-    const stateValues = Object.values(ToolState);
-    const stateMap: Record<string, any> = {};
-    stateValues.forEach(state => {
-      stateMap[state] = { name: state };
-    });
-
-    this._stateMachine = new RoleStateMachine({
-      initial: ToolState.IDLE,
-      states: stateMap,
-      transitions: [
-        { from: ToolState.IDLE, to: ToolState.RUNNING, event: 'start' },
-        { from: ToolState.RUNNING, to: ToolState.COMPLETED, event: 'complete' },
-        { from: ToolState.RUNNING, to: ToolState.FAILED, event: 'fail' },
-        { from: ToolState.RUNNING, to: ToolState.CANCELLED, event: 'cancel' },
-        { from: ToolState.COMPLETED, to: ToolState.IDLE, event: 'reset' },
-        { from: ToolState.FAILED, to: ToolState.IDLE, event: 'reset' },
-        { from: ToolState.CANCELLED, to: ToolState.IDLE, event: 'reset' },
-      ],
-    });
+    };
 
     // 初始化事件发射器
     this._eventEmitter = new EventEmitter();
     this._eventEmitter.setMaxListeners(100);
-
-    // 初始化消息路由器
-    this._messageRouter = new MessageRouter({
-      routerId: `tool-router-${this.id}`,
-      maxConcurrency: 10,
-      enableMetrics: true,
-    });
 
     // 初始化指标
     this._metrics = {
@@ -146,14 +105,6 @@ export abstract class BaseTool extends SerializationMixin implements Tool {
         network: { min: 0, max: 0, avg: 0 },
       },
     };
-
-    // 监听状态变化
-    this._stateMachine.on('stateChanged', (oldState, newState) => {
-      this._state = newState as ToolStateType;
-      this.context.state = newState;
-      this._eventEmitter.emit('tool:state-changed', this.getInfo(), oldState, newState);
-      logger.debug(`Tool ${this.name} state changed: ${oldState} -> ${newState}`);
-    });
 
     logger.debug(`Tool created: ${this.name} (${this.id})`);
     this._eventEmitter.emit('tool:created', this.getInfo());
@@ -206,7 +157,6 @@ export abstract class BaseTool extends SerializationMixin implements Tool {
 
   /**
    * 执行工具（增强版本）
-   * 集成状态管理、错误处理、指标收集等功能
    */
   async execute(args?: Record<string, any>, options?: ToolExecutionOptions): Promise<ToolResult> {
     if (!this._enabled) {
@@ -229,7 +179,8 @@ export abstract class BaseTool extends SerializationMixin implements Tool {
 
     try {
       // 转换到运行状态
-      await this._stateMachine.transition('start');
+      this._state = ToolState.RUNNING;
+      this.context.state = this._state;
       this._eventEmitter.emit('tool:started', this.getInfo());
 
       // 更新上下文
@@ -245,27 +196,33 @@ export abstract class BaseTool extends SerializationMixin implements Tool {
       result = await this.executeInternal(args, options);
 
       // 转换到完成状态
-      await this._stateMachine.transition('complete');
+      this._state = ToolState.COMPLETED;
+      this.context.state = this._state;
       this._eventEmitter.emit('tool:completed', this.getInfo(), result);
 
     } catch (error) {
       // 转换到失败状态
-      await this._stateMachine.transition('fail');
-
+      this._state = ToolState.FAILED;
+      this.context.state = this._state;
+      
       const toolError = error as Error;
       result = this.createErrorResult(toolError, startTime);
-
+      
       this._eventEmitter.emit('tool:failed', this.getInfo(), toolError);
       await this.handleError(toolError);
-
+      
       throw error;
     } finally {
       clearTimeout(timeoutId);
       this._abortController = undefined;
-
+      
       // 更新指标
       this.updateMetrics(result, startTime);
       this._lastExecutedAt = new Date();
+      
+      // 回到空闲状态
+      this._state = ToolState.IDLE;
+      this.context.state = this._state;
     }
 
     return result;
@@ -282,7 +239,8 @@ export abstract class BaseTool extends SerializationMixin implements Tool {
   async cancel(): Promise<void> {
     if (this._state === ToolState.RUNNING) {
       this._abortController?.abort();
-      await this._stateMachine.transition('cancel');
+      this._state = ToolState.CANCELLED;
+      this.context.state = this._state;
       this._eventEmitter.emit('tool:cancelled', this.getInfo());
       logger.debug(`Tool ${this.name} cancelled`);
     }
@@ -293,7 +251,8 @@ export abstract class BaseTool extends SerializationMixin implements Tool {
    */
   async reset(): Promise<void> {
     if (this._state !== ToolState.IDLE) {
-      await this._stateMachine.transition('reset');
+      this._state = ToolState.IDLE;
+      this.context.state = this._state;
       this.context.stateData = {};
       logger.debug(`Tool ${this.name} reset`);
     }
@@ -301,7 +260,6 @@ export abstract class BaseTool extends SerializationMixin implements Tool {
 
   /**
    * 验证工具是否可用
-   * 子类可以覆盖此方法以提供自定义验证
    */
   async validate(): Promise<boolean> {
     return this._enabled;
@@ -309,11 +267,10 @@ export abstract class BaseTool extends SerializationMixin implements Tool {
 
   /**
    * 处理工具执行异常
-   * @param error 错误对象
    */
   async handleError(error: Error): Promise<void> {
     logger.error(`Tool ${this.name} failed:`, error);
-
+    
     // 记录错误到历史
     this.context.history.push({
       type: 'error',
@@ -338,12 +295,11 @@ export abstract class BaseTool extends SerializationMixin implements Tool {
 
   /**
    * 获取工具帮助信息
-   * 子类可以覆盖此方法以提供更详细的帮助信息
    */
   getHelp(): string {
     const tags = Array.from(this._tags).join(', ');
     const metrics = this.getMetrics();
-
+    
     return `
 Tool: ${this.name} (v${this.version})
 ID: ${this.id}
@@ -361,9 +317,6 @@ Performance Metrics:
 
 Arguments:
 ${this.formatArgs()}
-
-Dependencies:
-${this.formatDependencies()}
     `.trim();
   }
 
@@ -410,17 +363,12 @@ ${this.formatDependencies()}
     if (data.tags) {
       this._tags = new Set(data.tags);
     }
-
+    
     logger.debug(`Tool ${this.name} deserialized`);
   }
 
   /**
    * 创建工具执行结果
-   * @param success 是否成功
-   * @param message 结果消息
-   * @param data 结果数据
-   * @param metadata 结果元数据
-   * @param startTime 开始时间
    */
   protected createResult(
     success: boolean,
@@ -431,8 +379,8 @@ ${this.formatDependencies()}
   ): ToolResult {
     const now = new Date();
     const start = startTime || now;
-
-    return ToolResultSchema.parse({
+    
+    return {
       toolId: this.id,
       success,
       message,
@@ -443,7 +391,7 @@ ${this.formatDependencies()}
       metadata: metadata || {},
       outputFiles: [],
       warnings: [],
-    });
+    };
   }
 
   /**
@@ -451,8 +399,8 @@ ${this.formatDependencies()}
    */
   protected createErrorResult(error: Error, startTime: Date): ToolResult {
     const now = new Date();
-
-    return ToolResultSchema.parse({
+    
+    return {
       toolId: this.id,
       success: false,
       message: `Tool execution failed: ${error.message}`,
@@ -467,49 +415,7 @@ ${this.formatDependencies()}
       metadata: {},
       outputFiles: [],
       warnings: [],
-    });
-  }
-
-  /**
-   * 获取工具参数
-   * @param key 参数键
-   * @returns 参数值
-   */
-  protected getArg<T>(key: string): T | undefined {
-    return this.context.args?.[key] as T;
-  }
-
-  /**
-   * 设置工具参数
-   * @param key 参数键
-   * @param value 参数值
-   */
-  protected setArg<T>(key: string, value: T): void {
-    if (!this.context.args) {
-      this.context.args = {};
-    }
-    this.context.args[key] = value;
-  }
-
-  /**
-   * 获取工具状态
-   * @param key 状态键
-   * @returns 状态值
-   */
-  protected getState<T>(key: string): T | undefined {
-    return this.context.state?.[key] as T;
-  }
-
-  /**
-   * 设置工具状态
-   * @param key 状态键
-   * @param value 状态值
-   */
-  protected setState<T>(key: string, value: T): void {
-    if (!this.context.state) {
-      this.context.state = {};
-    }
-    this.context.state[key] = value;
+    };
   }
 
   /**
@@ -519,30 +425,15 @@ ${this.formatDependencies()}
     this._metrics.executionCount++;
     this._metrics.totalExecutionTime += result.executionTime;
     this._metrics.averageExecutionTime = this._metrics.totalExecutionTime / this._metrics.executionCount;
-
+    
     if (result.success) {
       this._metrics.successCount++;
     } else {
       this._metrics.failureCount++;
     }
-
+    
     this._metrics.successRate = this._metrics.successCount / this._metrics.executionCount;
     this._metrics.lastExecutionTime = result.endTime;
-
-    // 更新资源使用统计
-    if (result.resourceUsage) {
-      const { cpu, memory, network } = result.resourceUsage;
-
-      if (cpu !== undefined) {
-        this.updateResourceMetric(this._metrics.resourceUsage.cpu, cpu);
-      }
-      if (memory !== undefined) {
-        this.updateResourceMetric(this._metrics.resourceUsage.memory, memory);
-      }
-      if (network !== undefined) {
-        this.updateResourceMetric(this._metrics.resourceUsage.network, network);
-      }
-    }
 
     // 更新上下文中的指标
     this.context.metrics = {
@@ -556,19 +447,6 @@ ${this.formatDependencies()}
   }
 
   /**
-   * 更新资源指标
-   */
-  private updateResourceMetric(metric: { min: number; max: number; avg: number }, value: number): void {
-    if (metric.min === 0 || value < metric.min) {
-      metric.min = value;
-    }
-    if (value > metric.max) {
-      metric.max = value;
-    }
-    metric.avg = (metric.avg + value) / 2;
-  }
-
-  /**
    * 格式化参数说明
    */
   private formatArgs(): string {
@@ -576,18 +454,10 @@ ${this.formatDependencies()}
     if (Object.keys(args).length === 0) {
       return 'No arguments';
     }
-
+    
     return Object.entries(args)
       .map(([key, value]) => `- ${key}: ${typeof value} = ${JSON.stringify(value)}`)
       .join('\n');
-  }
-
-  /**
-   * 格式化依赖说明
-   */
-  private formatDependencies(): string {
-    // 子类可以覆盖此方法来提供依赖信息
-    return 'None';
   }
 
   /**
@@ -619,7 +489,6 @@ ${this.formatDependencies()}
   async dispose(): Promise<void> {
     await this.cancel();
     this._eventEmitter.removeAllListeners();
-    await this._messageRouter.stop();
     logger.debug(`Tool ${this.name} disposed`);
   }
 }

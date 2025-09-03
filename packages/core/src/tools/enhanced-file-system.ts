@@ -9,38 +9,35 @@ import { logger } from '../utils/logger';
  * 提供类型安全的文件操作功能
  * 集成第一阶段完成的核心系统
  */
-export class FileSystemTool extends BaseTool {
+export class EnhancedFileSystemTool extends BaseTool {
   constructor(config?: Partial<ToolConfig>) {
     super({
-      name: 'file_system',
-      description: 'Enhanced file system operations with type safety',
+      name: 'enhanced_file_system',
+      description: 'Enhanced file system operations with type safety and advanced features',
       version: '2.0.0',
       category: 'system',
       type: 'system',
-      tags: ['filesystem', 'io', 'files'],
+      tags: ['filesystem', 'io', 'files', 'enhanced'],
       ...config,
     });
   }
 
   /**
    * 实现具体的文件系统操作执行逻辑
-   * @param args 执行参数
-   * @param options 执行选项
-   * @returns 执行结果
    */
   protected async executeInternal(
-    args?: Record<string, any>,
+    args?: Record<string, any>, 
     options?: ToolExecutionOptions
   ): Promise<ToolResult> {
     const startTime = new Date();
-
+    
     // 验证操作类型
     const operation = args?.operation;
     if (!operation) {
       return this.createResult(false, 'No operation specified', undefined, {}, startTime);
     }
 
-    logger.debug(`FileSystemTool executing operation: ${operation}`, args);
+    logger.debug(`EnhancedFileSystemTool executing operation: ${operation}`, args);
 
     // 执行相应的操作
     switch (operation) {
@@ -62,48 +59,58 @@ export class FileSystemTool extends BaseTool {
         return await this.moveFile(args, startTime);
       case 'stat':
         return await this.getFileStats(args, startTime);
+      case 'search':
+        return await this.searchFiles(args, startTime);
       default:
         return this.createResult(
-          false,
-          `Unknown operation: ${operation}`,
-          undefined,
-          { availableOperations: ['read', 'write', 'delete', 'list', 'exists', 'mkdir', 'copy', 'move', 'stat'] },
+          false, 
+          `Unknown operation: ${operation}`, 
+          undefined, 
+          { 
+            availableOperations: [
+              'read', 'write', 'delete', 'list', 'exists', 
+              'mkdir', 'copy', 'move', 'stat', 'search'
+            ] 
+          },
           startTime
         );
-    }
-        `File system operation failed: ${(error as Error).message}`,
-        undefined,
-        error
-      );
     }
   }
 
   /**
    * 读取文件
-   * @param args 参数
-   * @param startTime 开始时间
-   * @returns 执行结果
    */
   private async readFile(args: Record<string, any>, startTime: Date): Promise<ToolResult> {
-    const path = args.path;
-    const encoding = args.encoding || 'utf-8';
-
+    const { path, encoding = 'utf-8', maxSize = 10 * 1024 * 1024 } = args; // 10MB limit
+    
     if (!path) {
       return this.createResult(false, 'File path is required', undefined, {}, startTime);
     }
 
     try {
-      const content = await fs.readFile(path, encoding);
       const stats = await fs.stat(path);
-
+      
+      if (stats.size > maxSize) {
+        return this.createResult(
+          false,
+          `File too large: ${stats.size} bytes (max: ${maxSize} bytes)`,
+          undefined,
+          { operation: 'read', fileSize: stats.size, maxSize },
+          startTime
+        );
+      }
+      
+      const content = await fs.readFile(path, encoding);
+      
       return this.createResult(
-        true,
-        'File read successfully',
-        {
-          content,
+        true, 
+        'File read successfully', 
+        { 
+          content, 
           path,
           size: stats.size,
           encoding,
+          lines: content.split('\n').length,
         },
         {
           operation: 'read',
@@ -115,8 +122,8 @@ export class FileSystemTool extends BaseTool {
     } catch (error) {
       const err = error as Error;
       return this.createResult(
-        false,
-        `Failed to read file: ${err.message}`,
+        false, 
+        `Failed to read file: ${err.message}`, 
         undefined,
         { operation: 'read', error: err.name },
         startTime
@@ -126,38 +133,48 @@ export class FileSystemTool extends BaseTool {
 
   /**
    * 写入文件
-   * @param args 参数
-   * @param startTime 开始时间
-   * @returns 执行结果
    */
   private async writeFile(args: Record<string, any>, startTime: Date): Promise<ToolResult> {
-    const { path, content, encoding = 'utf-8', createDir = true } = args;
-
+    const { path, content, encoding = 'utf-8', createDir = true, backup = false } = args;
+    
     if (!path || content === undefined) {
       return this.createResult(false, 'Path and content are required', undefined, {}, startTime);
     }
 
     try {
+      // 创建备份
+      if (backup) {
+        try {
+          await fs.access(path);
+          const backupPath = `${path}.backup.${Date.now()}`;
+          await fs.copyFile(path, backupPath);
+        } catch {
+          // 文件不存在，无需备份
+        }
+      }
+
       // 确保目录存在
       if (createDir) {
         await fs.mkdir(dirname(path), { recursive: true });
       }
-
+      
       await fs.writeFile(path, content, encoding);
       const stats = await fs.stat(path);
-
+      
       return this.createResult(
-        true,
-        'File written successfully',
-        {
+        true, 
+        'File written successfully', 
+        { 
           path,
           size: stats.size,
           encoding,
+          lines: content.split('\n').length,
         },
         {
           operation: 'write',
           fileSize: stats.size,
           encoding,
+          backup,
         },
         startTime
       );
@@ -174,21 +191,18 @@ export class FileSystemTool extends BaseTool {
   }
 
   /**
-   * 删除文件
-   * @param args 参数
-   * @param startTime 开始时间
-   * @returns 执行结果
+   * 删除文件或目录
    */
   private async deleteFile(args: Record<string, any>, startTime: Date): Promise<ToolResult> {
-    const { path, recursive = false } = args;
-
+    const { path, recursive = false, force = false } = args;
+    
     if (!path) {
-      return this.createResult(false, 'File path is required', undefined, {}, startTime);
+      return this.createResult(false, 'Path is required', undefined, {}, startTime);
     }
 
     try {
       const stats = await fs.stat(path);
-
+      
       if (stats.isDirectory()) {
         if (recursive) {
           await fs.rmdir(path, { recursive: true });
@@ -198,21 +212,32 @@ export class FileSystemTool extends BaseTool {
       } else {
         await fs.unlink(path);
       }
-
+      
       return this.createResult(
-        true,
-        `${stats.isDirectory() ? 'Directory' : 'File'} deleted successfully`,
+        true, 
+        `${stats.isDirectory() ? 'Directory' : 'File'} deleted successfully`, 
         { path, type: stats.isDirectory() ? 'directory' : 'file' },
-        { operation: 'delete', recursive },
+        { operation: 'delete', recursive, force },
         startTime
       );
     } catch (error) {
       const err = error as Error;
+      if (!force) {
+        return this.createResult(
+          false,
+          `Failed to delete: ${err.message}`,
+          undefined,
+          { operation: 'delete', error: err.name },
+          startTime
+        );
+      }
+      
+      // 强制删除模式，忽略错误
       return this.createResult(
-        false,
-        `Failed to delete: ${err.message}`,
-        undefined,
-        { operation: 'delete', error: err.name },
+        true,
+        'Delete operation completed (forced)',
+        { path, forced: true },
+        { operation: 'delete', force: true },
         startTime
       );
     }
@@ -220,16 +245,13 @@ export class FileSystemTool extends BaseTool {
 
   /**
    * 列出目录内容
-   * @param args 参数
-   * @param startTime 开始时间
-   * @returns 执行结果
    */
   private async listDirectory(args: Record<string, any>, startTime: Date): Promise<ToolResult> {
-    const { path = '.', detailed = false, recursive = false } = args;
+    const { path = '.', detailed = false, recursive = false, filter } = args;
 
     try {
       const entries = await fs.readdir(path, { withFileTypes: true });
-      const files = await Promise.all(
+      let files = await Promise.all(
         entries.map(async (entry) => {
           const fullPath = join(path, entry.name);
           const result: any = {
@@ -266,11 +288,17 @@ export class FileSystemTool extends BaseTool {
         })
       );
 
+      // 应用过滤器
+      if (filter) {
+        const regex = new RegExp(filter, 'i');
+        files = files.filter(file => regex.test(file.name));
+      }
+
       return this.createResult(
-        true,
-        'Directory listed successfully',
+        true, 
+        'Directory listed successfully', 
         { files, path, count: files.length },
-        { operation: 'list', detailed, recursive },
+        { operation: 'list', detailed, recursive, filter },
         startTime
       );
     } catch (error) {
@@ -290,7 +318,7 @@ export class FileSystemTool extends BaseTool {
    */
   private async checkExists(args: Record<string, any>, startTime: Date): Promise<ToolResult> {
     const { path } = args;
-
+    
     if (!path) {
       return this.createResult(false, 'Path is required', undefined, {}, startTime);
     }
@@ -298,7 +326,7 @@ export class FileSystemTool extends BaseTool {
     try {
       await fs.access(path);
       const stats = await fs.stat(path);
-
+      
       return this.createResult(
         true,
         'Path exists',
@@ -510,6 +538,73 @@ export class FileSystemTool extends BaseTool {
   }
 
   /**
+   * 搜索文件
+   */
+  private async searchFiles(args: Record<string, any>, startTime: Date): Promise<ToolResult> {
+    const { path = '.', pattern, recursive = true, maxResults = 100 } = args;
+
+    if (!pattern) {
+      return this.createResult(false, 'Search pattern is required', undefined, {}, startTime);
+    }
+
+    try {
+      const results: any[] = [];
+      const regex = new RegExp(pattern.replace(/\*/g, '.*'), 'i');
+
+      const searchDir = async (dirPath: string, depth = 0): Promise<void> => {
+        if (results.length >= maxResults) return;
+
+        try {
+          const entries = await fs.readdir(dirPath, { withFileTypes: true });
+
+          for (const entry of entries) {
+            if (results.length >= maxResults) break;
+
+            const fullPath = join(dirPath, entry.name);
+
+            if (regex.test(entry.name)) {
+              const stats = await fs.stat(fullPath);
+              results.push({
+                name: entry.name,
+                path: fullPath,
+                isDirectory: entry.isDirectory(),
+                isFile: entry.isFile(),
+                size: stats.size,
+                modified: stats.mtime,
+              });
+            }
+
+            if (recursive && entry.isDirectory() && depth < 10) {
+              await searchDir(fullPath, depth + 1);
+            }
+          }
+        } catch (error) {
+          // 忽略无法访问的目录
+        }
+      };
+
+      await searchDir(path);
+
+      return this.createResult(
+        true,
+        `Search completed, found ${results.length} matches`,
+        { results, pattern, searchPath: path, count: results.length },
+        { operation: 'search', recursive, maxResults },
+        startTime
+      );
+    } catch (error) {
+      const err = error as Error;
+      return this.createResult(
+        false,
+        `Search failed: ${err.message}`,
+        undefined,
+        { operation: 'search', error: err.name },
+        startTime
+      );
+    }
+  }
+
+  /**
    * 自定义错误处理
    */
   protected async onError(error: Error): Promise<void> {
@@ -520,39 +615,55 @@ export class FileSystemTool extends BaseTool {
   }
 
   /**
-   * 获取帮助信息
+   * 获取增强的帮助信息
    */
   getHelp(): string {
     return `
-Tool: ${this.name} (v${this.version})
-Category: ${this.category}
-Description: ${this.description}
+${super.getHelp()}
 
-Operations:
-- read: Read file content
+Enhanced Operations:
+- read: Read file content with size limits and encoding options
+  Args: path (string), encoding? (string), maxSize? (number)
+
+- write: Write content to file with backup and directory creation
+  Args: path (string), content (string), encoding? (string), createDir? (boolean), backup? (boolean)
+
+- delete: Delete file or directory with recursive and force options
+  Args: path (string), recursive? (boolean), force? (boolean)
+
+- list: List directory contents with detailed info and filtering
+  Args: path? (string), detailed? (boolean), recursive? (boolean), filter? (string)
+
+- exists: Check if path exists with detailed information
   Args: path (string)
 
-- write: Write content to file
-  Args: path (string), content (string)
+- mkdir: Create directory with recursive option
+  Args: path (string), recursive? (boolean)
 
-- delete: Delete a file
+- copy: Copy file with overwrite protection
+  Args: source (string), destination (string), overwrite? (boolean)
+
+- move: Move/rename file with overwrite protection
+  Args: source (string), destination (string), overwrite? (boolean)
+
+- stat: Get detailed file statistics
   Args: path (string)
 
-- list: List directory contents
-  Args: path (string, optional)
+- search: Search for files by pattern
+  Args: path (string), pattern (string), recursive? (boolean)
 
 Examples:
-1. Read file:
-   { operation: 'read', path: '/path/to/file.txt' }
+1. Read file with size limit:
+   { operation: 'read', path: '/path/to/file.txt', maxSize: 1048576 }
 
-2. Write file:
-   { operation: 'write', path: '/path/to/file.txt', content: 'Hello World' }
+2. Write file with backup:
+   { operation: 'write', path: '/path/to/file.txt', content: 'Hello', backup: true }
 
-3. Delete file:
-   { operation: 'delete', path: '/path/to/file.txt' }
+3. List directory with details:
+   { operation: 'list', path: '/path/to/dir', detailed: true, recursive: true }
 
-4. List directory:
-   { operation: 'list', path: '/path/to/dir' }
+4. Search files:
+   { operation: 'search', path: '/path/to/search', pattern: '*.ts', recursive: true }
     `.trim();
   }
-} 
+}
