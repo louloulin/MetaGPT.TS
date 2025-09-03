@@ -1,0 +1,6 @@
+{
+  "__module_class_name": "test.TestUser",
+  "name": "Bob",
+  "age": 25,
+  "email_address": "bob@example.com"
+}

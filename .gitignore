@@ -19,7 +19,7 @@ plan*
 report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Runtime data
-
+notepad
 pids
 _.pid
 _.seed
