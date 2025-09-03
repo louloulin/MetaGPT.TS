@@ -272,6 +272,168 @@ bun run src/environment/examples/environment-example.ts
 3. 遵循TypeScript最佳实践
 4. 保持向后兼容性
 
+## 🚀 高级功能
+
+### 环境工厂模式
+
+```typescript
+import { EnvironmentFactory, createLocalEnvironment, createCloudEnvironment } from '@metagpt/core';
+
+// 使用工厂创建环境
+const factory = new EnvironmentFactory();
+const localEnv = await factory.createEnvironment('local', { name: 'Dev' });
+const cloudEnv = await factory.createEnvironment('cloud', { name: 'Prod' });
+
+// 使用便捷函数
+const quickLocal = await createLocalEnvironment({ name: 'Quick' });
+const quickCloud = await createCloudEnvironment({ name: 'Quick' });
+
+// 批量创建
+const environments = await factory.createEnvironments([
+  { type: 'local', config: { name: 'Env1' } },
+  { type: 'cloud', config: { name: 'Env2' } },
+]);
+```
+
+### 环境插件系统
+
+```typescript
+import { PluginManager, PerformanceMonitorPlugin, LoggingPlugin } from '@metagpt/core';
+
+const pluginManager = new PluginManager();
+
+// 注册插件
+await pluginManager.registerPlugin(new PerformanceMonitorPlugin());
+await pluginManager.registerPlugin(new LoggingPlugin());
+
+// 启用插件
+await pluginManager.enablePlugin('PerformanceMonitor');
+await pluginManager.enablePlugin('Logging');
+
+// 执行插件钩子
+await pluginManager.executeHook('afterEnvironmentCreate', environment);
+```
+
+### 环境适配器
+
+```typescript
+import { LocalEnvironmentAdapter, AdapterManager } from '@metagpt/core';
+
+const adapter = new LocalEnvironmentAdapter();
+await adapter.connect({});
+
+// 通过适配器管理环境
+const envId = await adapter.createEnvironment({
+  name: 'AdapterEnv',
+  type: 'local',
+});
+
+await adapter.startEnvironment(envId);
+const metrics = await adapter.getEnvironmentMetrics(envId);
+```
+
+### 环境集群管理
+
+```typescript
+import { EnvironmentCluster } from '@metagpt/core';
+
+const cluster = new EnvironmentCluster({
+  name: 'ProductionCluster',
+  maxEnvironments: 10,
+  loadBalancingStrategy: 'round-robin',
+  failover: {
+    enabled: true,
+    maxRetries: 3,
+    retryDelay: 1000,
+    healthCheckInterval: 5000,
+  },
+  autoScaling: {
+    enabled: true,
+    minEnvironments: 2,
+    maxEnvironments: 8,
+    scaleUpThreshold: 80,
+    scaleDownThreshold: 20,
+    cooldownPeriod: 30000,
+  },
+});
+
+await cluster.start();
+
+// 添加环境到集群
+await cluster.addEnvironment({ name: 'Worker1', type: 'local' });
+await cluster.addEnvironment({ name: 'Worker2', type: 'cloud' });
+
+// 负载均衡
+const env = cluster.getBestEnvironment();
+if (env) {
+  // 使用环境
+  cluster.releaseEnvironment(env.getInfo().id);
+}
+
+// 集群指标
+const metrics = cluster.getClusterMetrics();
+console.log(`集群有 ${metrics.totalEnvironments} 个环境`);
+```
+
+## 🎯 完整示例
+
+查看 `examples/` 目录中的完整示例：
+
+- `environment-example.ts` - 基础环境功能示例
+- `advanced-environment-example.ts` - 高级功能综合示例
+
+运行示例：
+
+```bash
+# 基础示例
+bun run src/environment/examples/environment-example.ts
+
+# 高级功能示例
+bun run src/environment/examples/advanced-environment-example.ts
+```
+
+## 📊 性能特性
+
+- **高并发支持**：支持数千个并发环境
+- **负载均衡**：多种负载均衡策略
+- **自动扩缩容**：基于负载自动调整环境数量
+- **故障转移**：自动检测和恢复故障环境
+- **内存优化**：智能缓存和资源管理
+- **实时监控**：完整的性能指标收集
+
+## 🔧 配置参考
+
+### 环境配置完整选项
+
+```typescript
+interface EnvironmentConfig {
+  id?: string;                    // 环境ID
+  name: string;                   // 环境名称
+  type: EnvironmentType;          // 环境类型
+  description?: string;           // 环境描述
+  priority: number;               // 环境优先级
+  resourceLimits: ResourceLimits; // 资源限制
+  env: Record<string, string>;    // 环境变量
+  tags: string[];                 // 标签
+  enableMonitoring: boolean;      // 启用监控
+  enableAutoRecovery: boolean;    // 启用自动恢复
+  healthCheckInterval: number;    // 健康检查间隔
+  maxHistorySize: number;         // 最大历史大小
+  maxRoles: number;               // 最大角色数
+  messageRouting: {               // 消息路由配置
+    enabled: boolean;
+    maxConcurrency: number;
+    enableMetrics: boolean;
+  };
+  stateManagement: {              // 状态管理配置
+    enabled: boolean;
+    persistence: boolean;
+    debug: boolean;
+  };
+  metadata: Record<string, any>;  // 元数据
+}
+```
+
 ## 📄 许可证
 
 MIT License

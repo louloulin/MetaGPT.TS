@@ -11,8 +11,27 @@
  * - 环境监控和健康检查
  * - 序列化和持久化支持
  * - 多种环境类型支持（本地、云端、容器化等）
+ * - 环境工厂模式和提供者系统
+ * - 环境适配器和插件系统
+ * - 环境集群管理和负载均衡
+ * - 自动扩缩容和故障转移
  */
 
+// 核心环境系统
 export * from './environment';
+
+// 环境工厂和提供者
+export * from './environment-factory';
+
+// 环境适配器系统
+export * from './environment-adapter';
+
+// 环境插件系统
+export * from './environment-plugin';
+
+// 环境集群管理
+export * from './environment-cluster';
+
+// 传统模块（向后兼容）
 export * from './sandbox';
 export * from './code-execution';
