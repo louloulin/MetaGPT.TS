@@ -105,7 +105,8 @@ web_modules/
 .env.test.local
 .env.production.local
 .env.local
-
+state-visualizations/
+state-persistence/
 # parcel-bundler cache (https://parceljs.org/)
 
 .parcel-cache
